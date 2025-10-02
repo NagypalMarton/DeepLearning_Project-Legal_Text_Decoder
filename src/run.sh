@@ -1,0 +1,1 @@
+//ez futtassa a python scripteket
