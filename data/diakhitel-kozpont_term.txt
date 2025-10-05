@@ -1,0 +1,116 @@
+A hiteltartozás végrehajtása, elévülése
+26. A Hitelszerződés bármely fél részéről történő felmondása, illetve a Hitelszerződés érvénytelenségének megállapítása esetén, amennyiben a Hitelfelvevő a Diákhitel Központtal szemben fennálló teljes tartozását nem egyenlíti ki, a Diákhitel Központ az ebből eredő követelését az MKK Magyar Követeléskezelő Zártkörűen Működő Részvénytársaságra engedményezi adásvétel jogcímén.
+27. A Hiteltartozás elévülésére a Ptk. vonatkozó rendelkezései irányadók. Az elévülést megszakítja a követelés teljesítésére irányuló írásbeli felszólítás, a követelés összegéről szóló értesítés, a részletfizetés engedélyezése vagy ezen engedély megszüntetése, illetőleg a követelés behajtása során eljáró állami adóhatóság, önálló bírósági végrehajtó vagy közjegyző bármely végrehajtási cselekménye. A Hitelfelvevő nem hivatkozhat elévülésre, ha a Diákhitel Központ valamely fentiek szerinti felszólítása, értesítése vagy egyéb nyilatkozata azért nem került kézbesítésre, mert a küldemény átvételét a Hitelfelvevő megtagadta, a küldeményt nem kereste, vagy a kézbesítés azért hiúsult meg, mert a Hitelfelvevő elköltözött, azonban új lakcímét nem jelentette be sem a Diákhitel Központ, sem a központi lakcím-nyilvántartás felé.
+II. A szabad felhasználású diákhitelre (DH1) vonatkozó szabályok
+A DH1 Hitelszerződés megkötése
+28. A DH1 igényléséhez az igénylő rendelkezésére bocsátott DH1 Hitelszerződés a Diákhitel Központ ajánlatának minősül. A DH1 Hitelszerződés
+− papíralapú szerződéskötés esetén ezen okirat, valamint az ennek mellékletét képező DH1 Hiteligénylési Adatlap Hitelfelvevő általi Diákhitel Direkt felületen történő kitöltését, kinyomtatását, majd személyes megjelenés során történő adategyeztetését, aláírását és leadását követően, a Diákhitel Központ részéről történő átvételével,
+− elektronikus szerződéskötés esetén vagy a felsőoktatási intézmény tanulmányi rendszeréből indítva, a Diákhitel Direkt hiteligénylési felületre irányítva, vagy közvetlenül a Diákhitel Direkt hiteligénylési felületen indítva, a DH1 Hitelszerződés és a DH1 Hiteligénylési Adatlap elektronikus ügyintézési szolgáltatás útján történő, fokozott biztonságú elektronikus aláírásával
+kerül megkötésre.
+Egy Hitelfevevő egyidejűleg legfeljebb kettő, eltérő hitelcélú (DH1 és DH2) érvényes Hitelszerződéssel rendelkezhet.
+29. A DH1 Hitelszerződés, valamint a DH1 Hiteligénylési Adatlap átvételét követően (papíralapú szerződéskötés), illetve a Hitelfevevő általi elektronikus aláírását követően (elektronikus szerződéskötés) a Diákhitel Központ megvizsgálja a hatálybalépés feltételeinek fennállását.
+A DH1 igénybevételének feltételei
+30. A DH1 igénybevételére – egyéni hitelbírálat és kockázatértékelés nélkül – azon cselekvőképes természetes személy jogosult, aki:
+31.1. az állampolgársági, illetve tartózkodási feltételeknek megfelel, azaz:
+a) magyar állampolgár,
+b) menekültként elismert,
+c) letelepedési vagy bevándorlási engedéllyel rendelkezik,
+d) a szabad mozgás és tartózkodás jogával rendelkező személyek beutazásáról és tartózkodásáról szóló 2007. évi I. törvény (a továbbiakban: Szmtv.)
+da) 6. § (1) bekezdés a) pontja alapján 180 napon belül 90 napot meghaladó tartózkodásra jogosult,
+db) 6. § (1) bekezdés a) pontja alapján 180 napon belül 90 napot meghaladó tartózkodásra jogosult személy családtagjaként az Szmtv. 6. § (2) bekezdése alapján 180 napon belül 90 napot meghaladó tartózkodásra jogosult,
+dc) 16. §-a alapján állandó tartózkodásra jogosult.
+31.2. a 35. pontjában foglaltakra is figyelemmel a 45. életévét nem töltötte be,
+31.3. lakóhelyét a személyi adat- és lakcímnyilvántartásba bejelentette,
+18
+31.4. Magyarországon székhellyel vagy fiókteleppel rendelkező pénzforgalmi szolgáltatónál vezetett, saját névre szóló számlával rendelkezik, és ezen számla számát folyósítás fogadása céljából a Diákhitel Központ részére közölte,
+31.5. nem rendelkezik korábban kötött és fennálló DH1 Hitelszerződéssel,
+31.6. nem rendelkezik a Diákhitel Központtal korábban kötött, de megszűnt hitel- vagy kölcsönszerződésből eredő hiteltartozással, illetőleg nem részesült korábban Diákhitel Központtal kötött hitel- vagy kölcsönszerződés vonatkozásában egészségkárosodás bekövetkezése alapján tartozáselengedési kedvezményben,
+31.7. felsőoktatási intézményben - állami ösztöndíjas, állami részösztöndíjas, önköltséges, államilag támogatott, vagy költségtérítéses képzésben, az Nftv. által meghatározott képzési formákban, szinten - érvényes hallgatói, illetve tanulói jogviszonnyal (a továbbiakban: hallgatói jogviszony) rendelkezik, és a képzésre bejelentkezett,
+31.8. a szerződés megkötésének időpontjában nem áll bíróság által jogerősen kiszabott olyan végrehajtandó szabadságvesztést elrendelő ítélet hatálya alatt, amelyet még nem hajtottak végre, vagy amelynek végrehajthatósága még nem szűnt meg, kivéve, ha a bíróság feltételes szabadságra bocsátotta.
+Jogosultsági idő
+32. A DH1 a Hitelfevevőt – az Üzletszabályzat 33. pontjában foglaltak kivételével – 11 tanulmányi félévre, tanulmányi félévenként legfeljebb 5 tanulmányi hónapra illeti meg.
+33. Abban az esetben, ha a Hitelfevevő egységes, osztatlan képzésben vesz részt és a képesítési követelmények szerint a képzési idő meghaladja a 11 tanulmányi félévet, a Hitelfevevő jogosultsági ideje megegyezik a képzési idővel, de így sem haladhatja meg a 14 tanulmányi félévet. A felsőoktatásban a tanulmányaikat 2006. szeptember 1. napja előtt megkezdő és a felsőoktatási intézmények által elfogadott tantervi követelmények alapján a korábbi képesítési követelmények szerint folytató Hitelfevevők jogosultsági ideje – ha az egyetemi képzési idejük meghaladja a 11 tanulmányi félévet – az egyetemi alapképzés szerinti szak képesítési követelményében meghatározott képzési idő tanulmányi hónapokban kifejezett mértékének időtartamával egyezik meg.
+34. A Hitelfevevő jogosultsági ideje – amennyiben a Hitelfevevő egyidejűleg DH2-t nem vesz igénybe – a DH1 igénybevételével érintett tanulmányi hónapok számával csökken. Amennyiben a Hitelfevevő egyidejűleg DH2-t is igénybe vesz, a Hitelfevevő jogosultsági ideje DH2 igénybevételével érintett tanulmányi félévek (félévenként 5 hónap) számával csökken.
+35. A Hitelfevevő nem részesülhet DH1 folyósításában a 45. életéve betöltésének időpontját soron követő tanulmányi félévtől.
+36. A Diákhitel Központ a DH1 igénybevételére vonatkozó jogosultsági időt a hallgatói hitelrendszer stabilitásának veszélyeztetése nélkül szakértői felülvizsgálatok és számítások alapulvételével megváltoztathatja, azonban az egyes Hitelfevevőkre az Üzletszabályzat 32-33. pontjaiban meghatározott időnél alacsonyabb mértékben nem állapíthatja meg.
+19
+37. A Hitel igénybevételére vonatkozó, 36. pont alapján megváltoztatott jogosultsági időt a Diákhitel Központ köteles a tanulmányi félév megkezdése előtt legalább 7 nappal két országos napilapban, a www.diakhitel.hu honlapján, valamint a felsőoktatási intézményekben hirdetményként közzétenni.
+A DH1 összege
+38. A DH1 legmagasabb összegét a Rendelet 5. § (1) bekezdés a) pontja és 21. § (2) bekezdése rögzíti. Tekintettel az 58. pontban foglaltakra is, a tanulmányi hónaponként igényelhető legmagasabb összeg 150.000,-Ft. A DH1-t a Hitelfevevő választása szerint havonta részletekben vagy tanulmányi félévenként egy összegben veheti fel.
+39. A Diákhitel Központ köteles az egyes tanévekre felvehető DH1 minimális és maximális összegét, illetőleg a köztes összegeket a tanulmányi félév megkezdése előtt legalább 7 nappal két országos napilapban, a www.diakhitel.hu honlapján, valamint a felsőoktatási intézményekben hirdetményként közzétenni.
+40. (hatályon kívül helyezve).
+A DH1 Hitelszerződés
+41. A Diákhitel Központ határozatlan idejű DH1 Hitelszerződés alapján meghatározott pénzösszeget bocsát a Hitelfevevő rendelkezésére. A Hitelfevevő a DH1 összegének visszafizetésére és a kamat összegének megfizetésére köteles. Az egyéni Hiteltartozás mindenkori értéke két részből áll:
+▪ tőketartozás
+▪ ügyleti kamat
+A tőketartozás a folyósítás napján a folyósított DH1 összegével növekszik.
+42. A Hitelhez kapcsolódóan a Hitelfevevőt terheli továbbá a törlesztőrészletek késedelmes teljesítése vagy a teljesítés elmaradása miatt felszámított késedelmi kamat megfizetésének, valamint az Üzletszabályzat alapján a Hitelfevevő oldalán keletkező költségek, díjak megfizetésének kötelezettsége.
+A DH1 Hitelszerződés érvényessége
+43. A DH1 Hitelszerződés írásban jön létre a 28. pontban foglaltak szerint. A DH1 Hitelszerződés érvényes létrejöttének (a továbbiakban: DH1 Hitelszerződés létrejötte) feltétele, hogy a Hitelfevevő az alábbi adatokat megadja a DH1 Hiteligénylési Adatlapon:
+a) a Hitelfevevő viselt családi és utóneve, születési családi és utóneve,
+b) a Hitelfevevő születési helye, ideje,
+c) a Hitelfevevő anyja születési családi és utóneve,
+d) a Hitelfevevő állampolgársága,
+e) a Hitelfevevő lakóhelye,
+f) a Hitelfevevő adóazonosító jele,
+g) igényelt havi hitelösszeg
+h) a folyósítás gyakorisága (havonta részletekben vagy tanulmányi félévenként egy összegben),
+i) oktatási intézmény és kar betű- és számkódja, szak megnevezése,
+j) képzés típusa (képzési szint),
+k) finanszírozás típusa,
+l) képesítési követelmények szerinti képzési idő (félévek száma),
+m) Hitelfevevő Magyarországon bejegyzett hitelintézetnél vezetett saját bankszámlaszáma, amelyre a Hitelfevevő a DH1 folyósítását kéri.
+Az Üzletszabályzat 31.1. d) pontjában megjelölt, Magyarország területén szabad mozgás és tartózkodás jogával rendelkező személy esetében a DH1 Hitelszerződés érvényes létrejöttének különös feltétele továbbá, hogy a Hitelfevevő a DH1 Hiteligénylési Adatlapon a tartózkodás jogát igazoló okmányával kapcsolatos, az Üzletszabályzat 47. d) pontjában meghatározott adatokat is feltüntesse.
+DH1 - papíralapú szerződéskötés
+44. A papíralapú szerződéskötést az erre a célra rendszeresített magyar nyelvű formanyomtatványon lehet kezdeményezni. A formanyomtatvány DH1 Hitelszerződésből és DH1 Hiteligénylési Adatlapból áll. A formanyomtatványt kizárólag elektronikus úton lehet kitölteni a www.diakhitel.hu honlapon, a Diákhitel Direkt portálon keresztül és kitöltés után kell kinyomtatni 2 példányban (2 példány Hiteligénylési Adatlap és 2 példány Hitelszerződés), ezt követően a 46. pontban foglaltak szerint aláírni és leadni.
+A DH1 igénylése kezdeményezhető a felsőoktatási intézmények egyes tanulmányi rendszereiből is, amely esetben a kitöltött formanyomtatvány kinyomtatása kizárólag a felsőoktatási intézmény tanulmányi osztályán vagy a felsőoktatási intézmény által kijelölt átvevőhelyén történhet.
+45. A Hitelfevevő a DH1 felvételét a tanulmányi félév során az Nftv. 42. § (4)-(5) bekezdésében foglaltak szerinti beiratkozást, illetve bejelentkezést követően legkésőbb az őszi tanulmányi félév esetén december 31-ig, tavaszi tanulmányi félév esetén május 31-ig kezdeményezheti. Ha a DH1 Hitelszerződés és a DH1 Hiteligénylési Adatlap leadása a Diákhitel Központ részére ezen időpontig nem történik meg, abban az esetben a Hitelfevevő a DH1 összegére az adott tanulmányi félévben nem válik jogosulttá.
+46. A Hitelfevevőnek vagy meghatalmazottjának a DH1 Hitelszerződés és a DH1 Hiteligénylési Adatlap példányait a Diákhitel Központ www.diakhitel.hu honlapján megjelölt helyen kell leadnia a Diákhitel Központ részére a következőkben ismertetett eljárás szerint:
+(a) A Hitelfevevő vagy meghatalmazottja a DH1 Hitelszerződés, valamint a kitöltött DH1 Hiteligénylési Adatlap mind a 2-2 példányát valamint a 47. pontban meghatározott okiratokat ellenőrzés céljából bemutatja a Diákhitel Központ által megjelölt átvételi helyen az átvételre feljogosított személynek.
+(b) A Hitelfevevő vagy a meghatalmazottja mind a DH1 Hitelszerződést, mind a DH1 Hiteligénylési Adatlapot az átvételre feljogosított személy előtt köteles aláírni. Az átvételre jogosult személy megtagadja az átvételt, ha a Hitelfevevő vagy meghatalmazottja nem írja alá mind a DH1 Hitelszerződés, mind a DH1 Hiteligénylési Adatlap 2-2 példányát, illetőleg az aláírásra nem az átadással egyidejűleg, az átvételre jogosult személy előtt kerül sor.
+Az átvételt meg kell tagadni továbbá akkor is, ha a DH1 Hitelszerződésen és/vagy a DH1 Hiteligénylési Adatlapon feltüntetett adatok illetőleg az aláírás nem egyeznek meg a 2-2 példányon, illetve az Üzletszabályzat 47. pontjában meghatározott adatok nem vagy nem pontosan, illetve az okiratok ellenőrzése alapján nem a tényleges állapotnak megfelelően kerültek kitöltésre.
+47. A DH1 Hiteligénylési Adatlapon feltüntetett adatok ellenőrzése az alábbiak szerint történik:
+a) A kitöltöttség és az adategyezőség ellenőrzése a Hitelfevevő személyi okmányai, illetve meghatalmazott eljárása esetén a Hitelfevevő személyi okmányaiban foglalt adatokról kiállított közjegyzői okirat alapján:
+a.a) a Hitelfevevő viselt családi és utóneve, születési családi és utóneve,
+a.b) a Hitelfevevő születési helye, ideje,
+a.c) a Hitelfevevő anyja születési családi és utóneve,
+a.d) a Hitelfevevő állampolgársága,
+a.e) a Hitelfevevő lakóhelye
+b) A kitöltöttség és az adategyezőség ellenőrzése a Hitelfevevő adóigazolványa (az állami adóhatóság által kiállított adóazonosító jelet igazoló hatósági bizonyítvány), illetve meghatalmazott eljárása esetén a Hitelfevevő adóigazolványában foglalt adatokról kiállított közjegyzői okirat alapján: a Hitelfevevő adóazonosító jele.
+c) Csak a kitöltöttség ellenőrzése:
+c.a) Hitelfevevő értesítési címe,
+c.b) igényelt havi hitelösszeg,
+c.c) a folyósítás gyakorisága (havonta részletekben vagy tanulmányi félévenként egy összegben),
+c.d) oktatási intézmény és kar betű- és számkódja, szak megnevezése,
+c.e) képzési forma,
+c.f) képzés típusa (képzési szint),
+c.g) finanszírozás típusa,
+c.h) képesítési követelmények szerinti képzési idő (félévek száma),
+c.i) elvégzett félévek száma a megjelölt képzésben,
+c.j) Hitelfevevő Magyarországon bejegyzett hitelintézetnél vezetett saját bankszámlaszáma, amelyre a Hitelfevevő a DH1 folyósítását kéri,
+c.k) Hitelfevevő neme,
+c.l) Hitelfevevő hallgatói azonosító száma,
+c.m) e-mail cím,
+c.n) telefonszám.
+d) A kitöltöttség és az adategyezőség ellenőrzése az Üzletszabályzat 31.1. d) pontjában megjelölt, szabad mozgás és tartózkodás jogával rendelkező személyek tartózkodási jogát igazoló okmány (a továbbiakban: tartózkodási jogot igazoló okmány) alapján történik. Meghatalmazott eljárása esetén a Hitelfevevő tartózkodási jogot igazoló okmányában foglalt adatokról kiállított közjegyzői okirat alapján: az okmány száma, érvényessége és jogcíme.
+Ha a DH1 Hitelszerződésen és a DH1 Hiteligénylési Adatlapon feltüntetett adatok az ellenőrzés szempontjai alapján megfelelőek, az átvételre feljogosított személy igazolja az átvételt, és egy-egy példányt a Hitelfevevő vagy meghatalmazottja részére átadja.
+A DH1 Hitelszerződés leadása során az alábbi hivatalos okiratokat kell az adatellenőrzéshez bemutatni:
+▪ Személyazonosító okmány: személyazonosító igazolvány, útlevél, 2001. január 1-jét követően kiállított gépjárművezetői engedély, menekült státuszt igazoló személyi igazolvány, letelepedett, bevándorolt státuszt igazoló személyazonosító igazolvány, EGT állampolgár tartózkodási engedélye, tartózkodási jogot igazoló okmány (regisztrációs igazolás, tartózkodási kártya, állandó tartózkodási kártya),
+▪ Lakcímet igazoló hatósági igazolvány,
+▪ Adóigazolvány, vagy az állami adóhatóság által kiállított adóazonosító jelet igazoló hatósági bizonyítvány,
+▪ Meghatalmazott útján történő eljárás esetén: a képviselő személyazonosságát igazoló személyi okmány és a lakcímét igazoló hatósági igazolvány, valamint közokiratba foglalt meghatalmazás, amely legalább az alábbiakat tartalmazza:
+▪ a Hitelfevevőnek a fenti a.a)-a.e), b) és d) pontokban megjelölt adatait,
+▪ a Hitelfevevő és a meghatalmazott aláírását,
+▪ a meghatalmazott nevét, lakóhelyét (ha értesítési címe ettől eltérő, akkor az értesítési címét is), anyja születési nevét, illetve a személyazonosságát igazoló okirat azonosító adatát,
+▪ valamint a Hitelfevevő kifejezett nyilatkozatát arra vonatkozóan, hogy a meghatalmazott jogosult a DH1 Hiteligénylési Adatlapot helyette és nevében kitölteni, valamint a DH1 Hitelszerződést, és a DH1 Hiteligénylési Adatlapot helyette és nevében aláírni.
+DH1 – elektronikus szerződéskötés
+47.1. A DH1 elektronikus ügyintézés útján történő igénylése elektronikusan kezdeményezhető az egyes felsőoktatási intézmények tanulmányi rendszerébe történő belépést követően, onnan való átirányítással a Diákhitel Direktben, illetőleg közvetlenül a Diákhitel Direktben vagy annak mobil alkalmazásában. A Diákhitel Központ a Hitelfevevő hiteligénylése során a tanulmányi rendszerből indított igénylés esetén ezen rendszerből, közvetlenül a Diákhitel Direktből indított igénylés esetén pedig a Központi Azonosítási Ügynök szolgáltatás – lakcímadat esetében a Személyiadat- és Lakcímnyilvántartás szolgáltatás - közhiteles nyilvántartásából veszi át a személyazonosító adatokat (név, születési hely és idő, anyja neve, valamint az állandó lakcím). Amennyiben a személyazonosító adatok a tanulmányi rendszerből kerültek átvételre, a Diákhitel Központ ezen adatokat egyezteti a fenti közhiteles nyilvántartásokkal.
+A képzési adatok a tanulmányi rendszerből indított igénylés esetén ezen rendszerből kerülnek átvételre, közvetlenül a Diákhitel Direktből indított igénylés esetén pedig a Hitelfevevő adja meg ezen adatokat.
+Az adóazonosító jelet minden esetben a Hitelfevevő adja meg, amely adatot a Diákhitel Központ egyezteti az Összerendelési Nyilvántartással.
+A Hitelfevevő a DH1 Hitelszerződés és DH1 Hiteligénylési Adatlap mindazon további adatait, amelyek nem kerültek automatikusan átvételre a tanulmányi rendszerből, a Diákhitel Direktben kitölti. Azt a tényt, hogy a Hitelfevevő valamennyi, a Hitelszerződés érvényes létrejöttéhez szükséges adatot megadta-e, a Diákhitel Központ a Diákhitel Direkt rendszerben automatikusan ellenőrzi, adathiányos vagy a fenti közhiteles nyilvántartásokban kezeltektől eltérő adatokat tartalmazó hiteligénylést a rendszer nem fogad be.
+47.2. A Diákhitel Központ a Diákhitel Direkt rendszerben a 47.1. pont szerint átvett vagy megadott adatok alapján megállapítja, hogy a Hitelfevevő jogosult-e a hiteligénylésre. Ha a Hitelfevevő nem jogosult a Hitelre, a hiteligénylést elutasítja, ha jogosult, akkor felkínálja a Hitelfevevőnek a DH1 Hitelszerződést és a DH1 Hiteligénylési Adatlapot papíralapú szerződéskötésre (nyomtatásra) vagy elektronikus szerződéskötésre (elektronikus aláírásra).
+Ez alapján a Hitelfevevő jogosult választani, hogy papíralapon vagy elektronikusan köt szerződést:
+− Amennyiben a Hitelfevevő a papíralapú szerződéskötést választja, abban az esetben a DH1 igénylésére a továbbiakban a 44-47. pontok irányadók.
+− Amennyiben a Hitelfevevő az elektronikus szerződéskötést választja, abban az esetben a Diákhitel Központ adategyeztetést folytat le a Központi Azonosítási Ügynök szolgáltatás, valamint a Személyiadat- és Lakcímnyilvántartás szolgáltatás igénybevételével a név, születési hely és idő, anyja neve és lakcímadatokra vonatkozóan. Sikeres adategyeztetést követően a Diákhitel Központ az Összerendelési Nyilvántartás szolgáltatás igénybevételével adategyeztetést folytat le az adóazonosító jel vonatkozásában. A sikeres adóazonosító jel-egyeztetést követően a Diákhitel Központ a Diákhitel Direkt felületén felkínálja az elektronikus hiteligénylési dokumentumokat a Hitelfevevőnek azonosításra visszavezetett dokumentumhitelesítési szolgáltatás útján történő elektronikus aláírásra. Amennyiben a központi nyilvántartásban tárolt adatok eltérnek a hiteligénylés során a tanulmányi rendszerből átvett, vagy a Hitelfevevő által megadott adatoktól, a hiteligénylés elutasításra kerül. A hiteligénylés befejező lépéseként a Hitelfevevő a DH1 Hitelszerződést és DH1 Hiteligénylési Adatlapot elektronikusan aláírja. A Hitelszerződés és a Hiteligénylés Adatlap letölthető, nyomtatható formában kerül feltöltésre a Hitelfevevő Diákhitel Direkt postafiókjába.
+A Diákhitel Direkt mobil alkalmazásban indított hiteligénylés esetén papíralapú szerződéskötési mód nem választható.
+47.3. (hatályon kívül helyezve)
