@@ -1,0 +1,7 @@
+docker build -t deeplearning_project-legal_text_decoder -f "C:\Users\nagyp\.vscode\DeepLearning Project\DeepLearning_Project-Legal_Text_Decoder\Dockerfile" "C:\Users\nagyp\.vscode\DeepLearning Project\DeepLearning_Project-Legal_Text_Decoder"
+docker run --rm --gpus all -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" deeplearning_project-legal_text_decoder bash -c "./src/run.sh"
+
+docker run --rm -p 8888:8888 ^
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" ^
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" ^
+  deeplearning_project-legal_text_decoder jupyter notebook --ip=0.0.0.0 --port=8888 --allow-root --NotebookApp.token=''
