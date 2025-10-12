@@ -1,7 +1,12 @@
+## Notes:
+## - Removed invalid/builtin packages: json, pathlib, re (these are part of Python stdlib)
+## - Updated scikit-learn to a Python 3.11 compatible version
+## - Base image already includes torch; pin torchvision/torchaudio if needed later
+
 numpy==2.3.3
 pandas==2.3.3
 jupyter==1.1.1
-json==0.12.1
-scikit-learn==1.0.2
-pathlib===1.0.1
-re==2.2.1
+scikit-learn==1.5.2
+tqdm==4.66.5
+sentence-transformers==2.6.1
+matplotlib==3.10.7

@@ -4,6 +4,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 import re
 import os
+import unicodedata
 from pathlib import Path
 
 def load_json_data(file_path):
@@ -26,12 +27,16 @@ def clean_text(text):
     
     # Convert to string if not already
     text = str(text)
+    # Normalize Unicode to preserve and standardize accented characters
+    # NFC keeps composed forms (recommended for display and matching)
+    text = unicodedata.normalize('NFC', text)
     
     # Remove extra whitespaces
     text = re.sub(r'\s+', ' ', text)
     
-    # Remove special characters (keep alphanumeric and basic punctuation)
-    text = re.sub(r'[^\w\s.,!?;:-]', '', text)
+    # Remove special characters but keep common punctuation and symbols used in HU legal texts
+    # Keep: word chars (incl. accented letters), whitespace, . , ! ? ; : ( ) - – — quotes, percent, slash, €, $, ellipsis
+    text = re.sub(r'[^\w\s\.,!\?;:\-–—\(\)"\'„”%/€$…]', '', text)
     
     # Strip leading/trailing whitespace
     text = text.strip()
@@ -107,13 +112,14 @@ def process_legal_data(json_file_path, output_dir=None):
         print(f"Validation set size: {len(val_df)}")
         print(f"Test set size: {len(test_df)}")
         # Save to CSV files
-        train_df.to_csv(f"{output_dir}/train.csv", index=False)
-        val_df.to_csv(f"{output_dir}/val.csv", index=False)
-        test_df.to_csv(f"{output_dir}/test.csv", index=False)
+        # Use UTF-8 with BOM for better Windows/Excel compatibility
+        train_df.to_csv(f"{output_dir}/train.csv", index=False, encoding='utf-8-sig')
+        val_df.to_csv(f"{output_dir}/val.csv", index=False, encoding='utf-8-sig')
+        test_df.to_csv(f"{output_dir}/test.csv", index=False, encoding='utf-8-sig')
         print(f"Data saved to {output_dir}/")
     else:
         print(f"Target column '{target_column}' not found. Saving full dataset.")
-        df.to_csv(f"{output_dir}/processed_data.csv", index=False)
+        df.to_csv(f"{output_dir}/processed_data.csv", index=False, encoding='utf-8-sig')
 
 if __name__ == "__main__":
     # Use environment variables for Docker compatibility
