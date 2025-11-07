@@ -4,11 +4,12 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 import re
 import os
+import glob
 import unicodedata
 from pathlib import Path
 
 def load_json_data(file_path):
-    """Load data from JSON file"""
+    """Load data from a single JSON file and return its parsed content."""
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
             data = json.load(file)
@@ -19,6 +20,41 @@ def load_json_data(file_path):
     except json.JSONDecodeError:
         print(f"Error: Invalid JSON format in {file_path}")
         raise
+
+def load_json_items(input_path):
+    """Load items from a JSON file or from all JSON files in a directory.
+
+    - If input_path is a directory: loads all *.json files and concatenates lists.
+    - If input_path is a file: loads that JSON.
+    Returns a list of items.
+    """
+    if os.path.isdir(input_path):
+        print(f"Loading all JSON files from directory: {input_path}")
+        items = []
+        json_files = sorted(glob.glob(os.path.join(input_path, '*.json')))
+        if not json_files:
+            raise FileNotFoundError(f"No JSON files found in directory: {input_path}")
+        for fp in json_files:
+            data = load_json_data(fp)
+            if isinstance(data, list):
+                items.extend(data)
+            elif isinstance(data, dict):
+                items.append(data)
+            else:
+                print(f"Warning: Unsupported JSON root type in {fp}: {type(data)} — skipping")
+        print(f"Total items loaded from directory: {len(items)}")
+        return items
+    elif os.path.isfile(input_path):
+        print(f"Loading JSON data from file: {input_path}")
+        data = load_json_data(input_path)
+        if isinstance(data, list):
+            return data
+        elif isinstance(data, dict):
+            return [data]
+        else:
+            raise ValueError(f"Unsupported JSON root type in {input_path}: {type(data)}")
+    else:
+        raise FileNotFoundError(f"Input path does not exist: {input_path}")
 
 def clean_text(text):
     """Clean and preprocess text data"""
@@ -65,8 +101,11 @@ def stratified_split(df, target_column, test_size=0.2, val_size=0.2, random_stat
     
     return train, val, test
 
-def process_legal_data(json_file_path, output_dir=None):
-    """Main function to process legal text data"""
+def process_legal_data(input_path, output_dir=None):
+    """Main function to process legal text data.
+
+    input_path can be a JSON file or a directory containing multiple JSON files.
+    """
     
     # Use environment variables for Docker compatibility
     if output_dir is None:
@@ -75,13 +114,13 @@ def process_legal_data(json_file_path, output_dir=None):
     # Create output directory
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
-    # Load JSON data
+    # Load JSON data (single file or multiple from directory)
     print("Loading JSON data...")
-    data = load_json_data(json_file_path)
+    data_items = load_json_items(input_path)
 
     # Speciális feldolgozás a mintád szerkezetéhez
     records = []
-    for item in data:
+    for item in data_items:
         # Szöveg
         text = item.get("data", {}).get("text", "")
         # Címke (ha van annotáció és choices)
@@ -124,8 +163,7 @@ def process_legal_data(json_file_path, output_dir=None):
 if __name__ == "__main__":
     # Use environment variables for Docker compatibility
     data_dir = os.getenv('DATA_DIR', '/app/data')
-    json_file_path = f"{data_dir}/legal_data.json"  # Most már csak a data mappában
-    print(f"Looking for JSON file at: {json_file_path}")
-    print(f"Data directory: {data_dir}")
+    input_path = data_dir  # process all JSON files in this directory
+    print(f"Input path: {input_path}")
     print(f"Output directory: {os.getenv('OUTPUT_DIR', '/app/output/processed')}")
-    process_legal_data(json_file_path)
+    process_legal_data(input_path)
