@@ -37,23 +37,31 @@ fi
 
 log "Using Python interpreter: $py"
 
-shopt -s nullglob
-py_files=("$dir"/*.py)
+# Define scripts in execution order
+scripts=(
+    "01_data_acquisition_and_analysis.py"
+    "02_data_cleansing_and_preparation.py"
+    "03_baseline_model.py"
+    "04_incremental_model_development.py"
+    "05_defining_evaluation_criteria.py"
+    "06_advanced_evaluation_robustness.py"
+    "07_advanced_evaluation_explainability.py"
+)
 
-if [ "${#py_files[@]}" -eq 0 ]; then
-    log "No Python files found in $dir"
-    exit 0
-fi
+log "Found ${#scripts[@]} Python script(s) to execute"
 
-log "Found ${#py_files[@]} Python file(s) to execute"
-
-for file in "${py_files[@]}"; do
-    log "Running: $(basename "$file")"
+for script in "${scripts[@]}"; do
+    file="$dir/$script"
+    if [ ! -f "$file" ]; then
+        log "WARNING: $script not found, skipping"
+        continue
+    fi
+    log "Running: $script"
     if ! "$py" "$file"; then
-        log "ERROR: $(basename "$file") failed"
+        log "ERROR: $script failed"
         exit 1
     fi
-    log "Completed: $(basename "$file")"
+    log "Completed: $script"
 done
 
 log "All Python scripts executed successfully"

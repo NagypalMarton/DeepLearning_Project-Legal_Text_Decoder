@@ -1,0 +1,50 @@
+# Docker Compose for ML Service (API + Frontend)
+# This is SEPARATE from the training pipeline
+# Use this AFTER training is complete to serve the models
+
+version: '3.8'
+
+services:
+  # Backend API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: legal-text-decoder-api
+    command: python src/api/app.py
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./output:/app/output:ro  # Read-only access to models
+    environment:
+      - OUTPUT_DIR=/app/output
+      - API_PORT=8000
+    networks:
+      - legal-text-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend GUI
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: legal-text-decoder-frontend
+    command: streamlit run src/frontend/app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+    networks:
+      - legal-text-network
+    restart: unless-stopped
+
+networks:
+  legal-text-network:
+    driver: bridge

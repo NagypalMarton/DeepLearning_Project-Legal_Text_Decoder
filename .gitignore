@@ -1,3 +1,8 @@
+# Data and output directories (mounted as volumes in Docker)
+data/
+output/
+attach_folders/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

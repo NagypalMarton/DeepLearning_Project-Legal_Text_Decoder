@@ -30,7 +30,7 @@ def load_split(processed_dir: str):
 		return df, None, None
 	else:
 		raise FileNotFoundError(
-			f"No processed CSVs found in {processed_dir}. Run 01_data_processing.py first.")
+			f"No processed CSVs found in {processed_dir}. Run 01_data_acquisition_and_analysis.py first.")
 
 
 def add_text_stats(df: pd.DataFrame) -> pd.DataFrame:
@@ -148,7 +148,7 @@ if __name__ == '__main__':
 # else:
 #     raise FileNotFoundError(
 #         f"No processed data found. Expected one of: {train_csv} or {processed_csv}. "
-#         "Run 01_data_processing.py first to generate processed CSVs."
+#         "Run 01_data_acquisition_and_analysis.py first to generate processed CSVs."
 #     )
 
 # # texts = df['text'].astype(str).tolist()

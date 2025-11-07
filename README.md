@@ -5,21 +5,36 @@ NLP rendszer jogi szövegek (ÁSZF/ÁFF) érthetőségének automatikus értéke
 ## 📚 Tartalomjegyzék
 
 - [Gyors Indítás](#-gyors-indítás)
+- [Követelmény-Fájl Megfeleltetés](#-követelmény-fájl-megfeleltetés)
 - [Fő lépések (pipeline)](#-fő-lépések-pipeline)
 - [Adatformátum](#-adatformátum)
 - [Környezeti változók](#-környezeti-változók)
 - [Kimenetek](#-kimenetek)
+- [ML Service - API + GUI](#-ml-service---api--gui)
 - [Hibaelhárítás](#-hibaelhárítás)
 
-## Fő lépések (pipeline)
+## 🎯 Követelmény-Fájl Megfeleltetés
 
-1. **01_data_processing.py** — JSON adatok betöltése (fájl vagy mappa), szöveg tisztítás, label kinyerés, stratifikált train/val/test split és mentés CSV-be az OUTPUT_DIR/processed mappába.
-2. **02_feature_engineering.py** — Egyszerű szövegstatisztikák (word_count, avg_word_len) hozzáadása és opcionális Sentence-BERT beágyazások mentése az OUTPUT_DIR/features mappába.
-3. **03_train_baseline.py** — Baseline szövegklasszifikációs modell: TF‑IDF + LogisticRegression. Modell mentése (OUTPUT_DIR/models), metrikák mentése (OUTPUT_DIR/reports).
-4. **04_train_transformer.py** — Transformer alapú modell (pl. HuBERT) finomhangolása a jogi szövegeken. GPU ajánlott! Modell és tokenizer mentése (OUTPUT_DIR/models/transformer_model).
-5. **05_evaluation.py** — Külön értékelő script a baseline modellre a test spliten (OUTPUT_DIR/evaluation).
-6. **06_robustness_tests.py** — Robusztussági tesztek: zajjal és csonkolással módosított szövegeken értékeli a baseline modellt (OUTPUT_DIR/robustness).
-7. **07_explainability.py** — Modell értelmezhetőség: top feature-ök osztályonként, predikció magyarázatok, hibaelemzés (OUTPUT_DIR/explainability).
+| # | Outstanding Level Követelmény | Implementáció | Fájl |
+|---|-------------------------------|---------------|------|
+| 1 | **Containerization** | Docker + GPU támogatás | `Dockerfile` |
+| 2 | **Data acquisition and analysis** | JSON parser, EDA, statistikák | `01_data_acquisition_and_analysis.py` |
+| 3 | **Data cleansing and preparation** | Text cleaning, stratified split | `02_data_cleansing_and_preparation.py` |
+| 4 | **Defining evaluation criteria** | Metrics, confusion matrix | `05_defining_evaluation_criteria.py` |
+| 5 | **Baseline model** | TF-IDF + LogisticRegression | `03_baseline_model.py` |
+| 6 | **Incremental model development** | Transformer (HuBERT) fine-tuning | `04_incremental_model_development.py` |
+| 7 | **Advanced evaluation** | Robustness + Explainability | `06_advanced_evaluation_robustness.py` <br> `07_advanced_evaluation_explainability.py` |
+| 8 | **ML as a service** | REST API + Web GUI | `src/api/app.py` <br> `src/frontend/app.py` |
+
+## 📋 Fő lépések (pipeline)
+
+1. **01_data_acquisition_and_analysis.py** — JSON adatok betöltése (fájl vagy mappa), szöveg tisztítás, label kinyerés, stratifikált train/val/test split és mentés CSV-be az OUTPUT_DIR/processed mappába.
+2. **02_data_cleansing_and_preparation.py** — Egyszerű szövegstatisztikák (word_count, avg_word_len) hozzáadása és opcionális Sentence-BERT beágyazások mentése az OUTPUT_DIR/features mappába.
+3. **03_baseline_model.py** — Baseline szövegklasszifikációs modell: TF‑IDF + LogisticRegression. Modell mentése (OUTPUT_DIR/models), metrikák mentése (OUTPUT_DIR/reports).
+4. **04_incremental_model_development.py** — Transformer alapú modell (pl. HuBERT) finomhangolása a jogi szövegeken. GPU ajánlott! Modell és tokenizer mentése (OUTPUT_DIR/models/transformer_model).
+5. **05_defining_evaluation_criteria.py** — Külön értékelő script a baseline modellre a test spliten (OUTPUT_DIR/evaluation).
+6. **06_advanced_evaluation_robustness.py** — Robusztussági tesztek: zajjal és csonkolással módosított szövegeken értékeli a baseline modellt (OUTPUT_DIR/robustness).
+7. **07_advanced_evaluation_explainability.py** — Modell értelmezhetőség: top feature-ök osztályonként, predikció magyarázatok, hibaelemzés (OUTPUT_DIR/explainability).
 
 > A `src/run.sh` sorban futtatja az összes `src/*.py` fájlt (ábécérendben). Dockerben ez az alapértelmezett belépési pont.
 
@@ -88,10 +103,10 @@ Az összes kimenet az `C:\Users\nagyp\.vscode\DeepLearning Project\attach_folder
 Python környezetben (a `requirements.txt` telepítése után) egyenként is futtathatók a scriptek:
 
 ```powershell
-$env:DATA_DIR = "C:\\path\\to\\data"; $env:OUTPUT_DIR = "C:\\path\\to\\output"; python src/01_data_processing.py
-python src/02_feature_engineering.py
-python src/03_train_baseline.py
-python src/05_evaluation.py
+$env:DATA_DIR = "C:\\path\\to\\data"; $env:OUTPUT_DIR = "C:\\path\\to\\output"; python src/01_data_acquisition_and_analysis.py
+python src/02_data_cleansing_and_preparation.py
+python src/03_baseline_model.py
+python src/05_defining_evaluation_criteria.py
 ```
 
 ## Kimenetek
@@ -108,9 +123,9 @@ python src/05_evaluation.py
 
 - A stratifikált split legalább két osztályt és elegendő mintát igényel osztályonként. Kevés minta esetén hibaüzenetet kaphatsz.
 - A Sentence‑BERT beágyazások letöltése internetet és több memóriát igényelhet; alapértelmezetten ki van kapcsolva.
-- A **transformer modell tanítása (04_train_transformer.py) GPU-t igényel** a hatékony futáshoz. CPU-n is fut, de sokkal lassabb.
+- A **transformer modell tanítása (04_incremental_model_development.py) GPU-t igényel** a hatékony futáshoz. CPU-n is fut, de sokkal lassabb.
 - A transformer modell alapértelmezetten a magyar **HuBERT** modellt használja, de ez környezeti változóval módosítható más modellekre (pl. `bert-base-multilingual-cased`).
-- Ha csak a baseline modellt szeretnéd futtatni (gyorsabb, kevesebb erőforrás), egyszerűen töröld vagy nevezd át a `04_train_transformer.py` fájlt a pipeline előtt.
+- Ha csak a baseline modellt szeretnéd futtatni (gyorsabb, kevesebb erőforrás), egyszerűen töröld vagy nevezd át a `04_incremental_model_development.py` fájlt a pipeline előtt.
 
 ## 🚀 Gyors Indítás
 
@@ -127,17 +142,24 @@ docker run --rm --gpus all `
 
 **Futási idő:** ~45-60 perc GPU-val | ~6+ óra CPU-n (transformer miatt)
 
+**Fontos:** 
+- A `data/` könyvtár tartalmazza a bemeneti JSON adatokat (host gépen)
+- Az `output/` könyvtár a futás eredményeit tartalmazza (betanított modellek, képek, riportok)
+- Ezek volume-ként csatolódnak a konténerbe (`/app/data` és `/app/output`)
+- A Python scriptek a konténeren belül az `/app/output` mappába mentik az eredményeket
+- A `data/` és `output/` könyvtárak **NEM** kerülnek Git verziókezelés alá (`.gitignore`)
+
 ## 📋 Fő lépések (pipeline)
 
-1. **01_data_processing.py** — JSON adatok betöltése (fájl vagy mappa), szöveg tisztítás, label kinyerés, stratifikált train/val/test split (60/20/20) és mentés CSV-be az OUTPUT_DIR/processed mappába.
-2. **02_feature_engineering.py** — Egyszerű szövegstatisztikák (word_count, avg_word_len) hozzáadása és opcionális Sentence-BERT beágyazások mentése az OUTPUT_DIR/features mappába.
-3. **03_train_baseline.py** — Baseline szövegklasszifikációs modell: TF‑IDF + LogisticRegression. Modell mentése (OUTPUT_DIR/models), metrikák mentése (OUTPUT_DIR/reports).
-4. **04_train_transformer.py** — Transformer alapú modell (pl. HuBERT) finomhangolása a jogi szövegeken. GPU ajánlott! Modell és tokenizer mentése (OUTPUT_DIR/models/transformer_model).
-5. **05_evaluation.py** — Külön értékelő script a baseline modellre a test spliten (OUTPUT_DIR/evaluation).
-6. **06_robustness_tests.py** — Robusztussági tesztek: zajjal és csonkolással módosított szövegeken értékeli a baseline modellt (OUTPUT_DIR/robustness).
-7. **07_explainability.py** — Modell értelmezhetőség: top feature-ök osztályonként, predikció magyarázatok, hibaelemzés (OUTPUT_DIR/explainability).
+1. **01_data_acquisition_and_analysis.py** — JSON adatok betöltése (fájl vagy mappa), szöveg tisztítás, label kinyerés, stratifikált train/val/test split (60/20/20) és mentés CSV-be az OUTPUT_DIR/processed mappába.
+2. **02_data_cleansing_and_preparation.py** — Egyszerű szövegstatisztikák (word_count, avg_word_len) hozzáadása és opcionális Sentence-BERT beágyazások mentése az OUTPUT_DIR/features mappába.
+3. **03_baseline_model.py** — Baseline szövegklasszifikációs modell: TF‑IDF + LogisticRegression. Modell mentése (OUTPUT_DIR/models), metrikák mentése (OUTPUT_DIR/reports).
+4. **04_incremental_model_development.py** — Transformer alapú modell (pl. HuBERT) finomhangolása a jogi szövegeken. GPU ajánlott! Modell és tokenizer mentése (OUTPUT_DIR/models/transformer_model).
+5. **05_defining_evaluation_criteria.py** — Külön értékelő script a baseline modellre a test spliten (OUTPUT_DIR/evaluation).
+6. **06_advanced_evaluation_robustness.py** — Robusztussági tesztek: zajjal és csonkolással módosított szövegeken értékeli a baseline modellt (OUTPUT_DIR/robustness).
+7. **07_advanced_evaluation_explainability.py** — Modell értelmezhetőség: top feature-ök osztályonként, predikció magyarázatok, hibaelemzés (OUTPUT_DIR/explainability).
 
-> A `src/run.sh` sorban futtatja az összes `src/*.py` fájlt (ábécérendben). Dockerben ez az alapértelmezett belépési pont.
+> A `src/run.sh` sorban futtatja az összes script-et a megadott sorrendben. Dockerben ez az alapértelmezett belépési pont.
 
 ## 📄 Adatformátum
 
@@ -158,49 +180,80 @@ Elvárt minimális séma egy elemre:
 
 **Megjegyzés:** Az első elem első választása kerül felhasználásra: `annotations[0].result[0].value.choices[0]`
 
+## 📁 Projekt Struktúra
+
 ```
-output/
-├── processed/
-│   ├── train.csv               # Training set (60%, szövegstatisztikákkal)
-│   ├── val.csv                 # Validation set (20%)
-│   └── test.csv                # Test set (20%)
+DeepLearning_Project-Legal_Text_Decoder/
+├── Dockerfile                                    # Containerization
+├── docker-compose.yml                            # ML Service orchestration
+├── requirements.txt                              # Python függőségek
+├── README.md                                     # Dokumentáció
+├── .gitignore                                    # Git kizárások
 │
-├── features/
-│   ├── train_word_count_hist.png
-│   ├── train_avg_word_len_hist.png
-│   ├── embeddings_train.npy    (ha ENABLE_EMBEDDINGS=true)
-│   ├── embeddings_val.npy
-│   ├── embeddings_test.npy
-│   └── embeddings_meta.json
+├── data/                                         # INPUT (volume mount)
+│   └── *.json                                    # Jogi szöveg adatok
 │
-├── models/
-│   ├── baseline_model.pkl      # Sklearn pipeline
-│   ├── label_mapping.json      # Label → ID mapping
-│   └── transformer_model/      # HuBERT modell
-│       ├── config.json
-│       ├── pytorch_model.bin
-│       └── tokenizer files
+├── src/                                          # PYTHON SCRIPTEK
+│   ├── run.sh                                    # Pipeline orchestrator
+│   ├── run_service.sh                            # Service launcher (Bash)
+│   ├── run_service.ps1                           # Service launcher (PowerShell)
+│   │
+│   ├── 01_data_acquisition_and_analysis.py       # Követelmény #2
+│   ├── 02_data_cleansing_and_preparation.py      # Követelmény #3
+│   ├── 03_baseline_model.py                      # Követelmény #5
+│   ├── 04_incremental_model_development.py       # Követelmény #6
+│   ├── 05_defining_evaluation_criteria.py        # Követelmény #4
+│   ├── 06_advanced_evaluation_robustness.py      # Követelmény #7a
+│   ├── 07_advanced_evaluation_explainability.py  # Követelmény #7b
+│   │
+│   ├── api/                                      # REST API Backend
+│   │   └── app.py                                # Követelmény #8a
+│   │
+│   └── frontend/                                 # Web GUI
+│       └── app.py                                # Követelmény #8b
 │
-├── reports/
-│   ├── baseline_val_report.json
-│   ├── baseline_test_report.json
-│   ├── baseline_test_confusion_matrix.png
-│   ├── transformer_test_report.json
-│   └── transformer_training_history.png
-│
-├── evaluation/
-│   ├── baseline_test_report.json
-│   └── baseline_test_confusion_matrix.png
-│
-├── robustness/
-│   ├── robustness_results.json
-│   └── robustness_comparison.png
-│
-└── explainability/
-    ├── feature_importance.json
-    ├── top_features_per_class.png
-    ├── prediction_explanations.json
-    └── misclassification_analysis.json
+└── output/                                       # OUTPUT (volume mount)
+    ├── processed/
+    │   ├── train.csv               # Training set (60%, szövegstatisztikákkal)
+    │   ├── val.csv                 # Validation set (20%)
+    │   └── test.csv                # Test set (20%)
+    │
+    ├── features/
+    │   ├── train_word_count_hist.png
+    │   ├── train_avg_word_len_hist.png
+    │   ├── embeddings_train.npy    (ha ENABLE_EMBEDDINGS=true)
+    │   ├── embeddings_val.npy
+    │   ├── embeddings_test.npy
+    │   └── embeddings_meta.json
+    │
+    ├── models/
+    │   ├── baseline_model.pkl      # Sklearn pipeline
+    │   ├── label_mapping.json      # Label → ID mapping
+    │   └── transformer_model/      # HuBERT modell
+    │       ├── config.json
+    │       ├── pytorch_model.bin
+    │       └── tokenizer files
+    │
+    ├── reports/
+    │   ├── baseline_val_report.json
+    │   ├── baseline_test_report.json
+    │   ├── baseline_test_confusion_matrix.png
+    │   ├── transformer_test_report.json
+    │   └── transformer_training_history.png
+    │
+    ├── evaluation/
+    │   ├── baseline_test_report.json
+    │   └── baseline_test_confusion_matrix.png
+    │
+    ├── robustness/
+    │   ├── robustness_results.json
+    │   └── robustness_comparison.png
+    │
+    └── explainability/
+        ├── feature_importance.json
+        ├── top_features_per_class.png
+        ├── prediction_explanations.json
+        └── misclassification_analysis.json
 ```
 
 ## ⚙️ Környezeti változók
@@ -246,6 +299,83 @@ output/
 └── explainability/     # Feature importance
 ```
 
+## 🌐 ML Service - API + GUI
+
+**FONTOS:** Ez a szolgáltatás **KÜLÖN** fut a training pipeline-tól! Először futtasd le a training pipeline-t, majd utána indítsd el a service-t.
+
+### Miért külön?
+
+A projekt kiértékelése az eredeti pipeline futtatásával történik (lásd fent). Az ML service egy **opcionális bónusz funkció**, amely lehetővé teszi a betanított modellek használatát egy webes felületen.
+
+### API Backend (FastAPI)
+
+**REST API** a betanított modellek kiszolgálására:
+
+```bash
+# Lokálisan (Python környezetben)
+python src/api/app.py
+
+# Docker-rel
+docker run -d -p 8000:8000 \
+  -v "C:\path\to\output:/app/output:ro" \
+  deeplearning_project-legal_text_decoder:1.0 \
+  python src/api/app.py
+```
+
+**Endpoints:**
+- `GET /` - Health check
+- `POST /predict` - Predikció (JSON: `{"text": "...", "model_type": "baseline"}`)
+- `GET /models` - Elérhető modellek listája
+- `GET /docs` - Swagger API dokumentáció
+
+### GUI Frontend (Streamlit)
+
+**Webes felület** a modellek interaktív teszteléséhez:
+
+```bash
+# Lokálisan
+streamlit run src/frontend/app.py
+
+# Docker Compose (ajánlott, API + Frontend együtt)
+docker-compose up
+```
+
+**Elérhető:** http://localhost:8501
+
+### Gyors indítás scriptek
+
+```powershell
+# PowerShell
+.\src\run_service.ps1
+
+# Vagy Linux/macOS
+bash src/run_service.sh
+```
+
+### Docker Compose (legegyszerűbb)
+
+```powershell
+# Indítás
+docker-compose up -d
+
+# Leállítás
+docker-compose down
+```
+
+**Elérés:**
+- Frontend: http://localhost:8501
+- API Docs: http://localhost:8000/docs
+
+### Funkciók
+
+✅ **Két modell** - Baseline és Transformer közötti váltás  
+✅ **Valós idejű predikció** - Azonnali értékelés  
+✅ **Vizualizációk** - Valószínűség eloszlás grafikonok  
+✅ **Példa szövegek** - Gyors teszteléshez  
+✅ **REST API** - Külső alkalmazásokból is használható  
+
+---
+
 ## 🐛 Hibaelhárítás
 
 | Probléma | Megoldás |
@@ -253,7 +383,7 @@ output/
 | `CUDA not available` | Ellenőrizd: `nvidia-smi`, Docker GPU support |
 | `CUDA out of memory` | `-e BATCH_SIZE=4` vagy `-e MAX_LENGTH=256` |
 | Stratified split hiba | Min. 3-5 példa/osztály szükséges |
-| Lassú futás CPU-n | Használj GPU-t vagy töröld `04_train_transformer.py` |
+| Lassú futás CPU-n | Használj GPU-t vagy töröld `04_incremental_model_development.py` |
 | JSON parsing hiba | Ellenőrizd az Adatformátum szekciót |
 
 ## ⏱️ Teljesítmény

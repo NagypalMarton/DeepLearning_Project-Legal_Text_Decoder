@@ -47,11 +47,11 @@ def main():
 	test_path = os.path.join(processed_dir, 'test.csv')
 
 	if not os.path.exists(model_path):
-		print(f"Model not found at {model_path}. Train the baseline first (03_train_baseline.py).")
+		print(f"Model not found at {model_path}. Train the baseline first (03_baseline_model.py).")
 		return
 
 	if not os.path.exists(test_path):
-		print(f"Test CSV not found at {test_path}. Run data processing first (01_data_processing.py).")
+		print(f"Test CSV not found at {test_path}. Run data processing first (01_data_acquisition_and_analysis.py).")
 		return
 
 	with open(model_path, 'rb') as f:
