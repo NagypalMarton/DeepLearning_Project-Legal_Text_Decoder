@@ -8,7 +8,8 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, AdamW, get_linear_schedule_with_warmup
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
+from torch.optim import AdamW
 from sklearn.metrics import classification_report, accuracy_score
 import matplotlib
 matplotlib.use("Agg")

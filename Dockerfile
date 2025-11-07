@@ -1,10 +1,5 @@
 FROM pytorch/pytorch:2.8.0-cuda12.9-cudnn9-runtime
 
-# Metadata
-LABEL maintainer="NagypalMarton"
-LABEL description="Legal Text Decoder - Cross-platform Deep Learning Pipeline"
-LABEL version="1.0"
-
 # Munkakönyvtár beállítása
 WORKDIR /app
 

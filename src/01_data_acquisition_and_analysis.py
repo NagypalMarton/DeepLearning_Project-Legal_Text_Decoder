@@ -109,7 +109,8 @@ def process_legal_data(input_path, output_dir=None):
     
     # Use environment variables for Docker compatibility
     if output_dir is None:
-        output_dir = os.getenv('OUTPUT_DIR', '/app/output/processed')
+        base_output = os.getenv('OUTPUT_DIR', '/app/output')
+        output_dir = os.path.join(base_output, 'processed')
     
     # Create output directory
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -164,6 +165,8 @@ if __name__ == "__main__":
     # Use environment variables for Docker compatibility
     data_dir = os.getenv('DATA_DIR', '/app/data')
     input_path = data_dir  # process all JSON files in this directory
+    base_output = os.getenv('OUTPUT_DIR', '/app/output')
+    output_dir = os.path.join(base_output, 'processed')
     print(f"Input path: {input_path}")
-    print(f"Output directory: {os.getenv('OUTPUT_DIR', '/app/output/processed')}")
+    print(f"Output directory: {output_dir}")
     process_legal_data(input_path)
