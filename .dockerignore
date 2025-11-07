@@ -1,0 +1,65 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+LICENSE
+RUNNING_DOCKERFILE.txt
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.eggs
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data and output (mounted as volumes)
+data/
+output/
+attach_folders/
+
+# Logs
+*.log
+training_log.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Jupyter notebooks
+notebook/
+*.ipynb
+.ipynb_checkpoints
+
+# Docker files (not needed in image)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Test files
+tests/
+.pytest_cache/
+.coverage
+htmlcov/

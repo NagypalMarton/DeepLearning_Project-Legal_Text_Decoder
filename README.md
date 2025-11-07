@@ -1,143 +1,398 @@
-# Legal Text Decoder
+# Legal Text Decoder# Legal Text Decoder
 
-NLP rendszer jogi szövegek (ÁSZF/ÁFF) érthetőségének automatikus értékelésére (1-5 skála). Docker + PyTorch + GPU támogatás.
+
+
+NLP rendszer jogi szövegek (ÁSZF/ÁFF) érthetőségének automatikus értékelésére (1-5 skála).  NLP rendszer jogi szövegek (ÁSZF/ÁFF) érthetőségének automatikus értékelésére (1-5 skála). Docker + PyTorch + GPU támogatás.
+
+**Docker + PyTorch + GPU támogatás | Cross-platform**
 
 ## 📚 Tartalomjegyzék
 
+---
+
 - [Gyors Indítás](#-gyors-indítás)
-- [Követelmény-Fájl Megfeleltetés](#-követelmény-fájl-megfeleltetés)
+
+## 🚀 Gyors Indítás- [Követelmény-Fájl Megfeleltetés](#-követelmény-fájl-megfeleltetés)
+
 - [Fő lépések (pipeline)](#-fő-lépések-pipeline)
-- [Adatformátum](#-adatformátum)
+
+### Legegyszerűbb módszer (automatikus platform detektálás):- [Adatformátum](#-adatformátum)
+
 - [Környezeti változók](#-környezeti-változók)
-- [Kimenetek](#-kimenetek)
-- [ML Service - API + GUI](#-ml-service---api--gui)
-- [Hibaelhárítás](#-hibaelhárítás)
 
-## 🎯 Követelmény-Fájl Megfeleltetés
+```bash- [Kimenetek](#-kimenetek)
 
-| # | Outstanding Level Követelmény | Implementáció | Fájl |
+# Windows PowerShell- [ML Service - API + GUI](#-ml-service---api--gui)
+
+.\docker-run.ps1- [Hibaelhárítás](#-hibaelhárítás)
+
+
+
+# Linux/macOS/Git Bash## 🎯 Követelmény-Fájl Megfeleltetés
+
+bash docker-run.sh
+
+```| # | Outstanding Level Követelmény | Implementáció | Fájl |
+
 |---|-------------------------------|---------------|------|
-| 1 | **Containerization** | Docker + GPU támogatás | `Dockerfile` |
-| 2 | **Data acquisition and analysis** | JSON parser, EDA, statistikák | `01_data_acquisition_and_analysis.py` |
-| 3 | **Data cleansing and preparation** | Text cleaning, stratified split | `02_data_cleansing_and_preparation.py` |
-| 4 | **Defining evaluation criteria** | Metrics, confusion matrix | `05_defining_evaluation_criteria.py` |
-| 5 | **Baseline model** | TF-IDF + LogisticRegression | `03_baseline_model.py` |
-| 6 | **Incremental model development** | Transformer (HuBERT) fine-tuning | `04_incremental_model_development.py` |
-| 7 | **Advanced evaluation** | Robustness + Explainability | `06_advanced_evaluation_robustness.py` <br> `07_advanced_evaluation_explainability.py` |
-| 8 | **ML as a service** | REST API + Web GUI | `src/api/app.py` <br> `src/frontend/app.py` |
 
-## 📋 Fő lépések (pipeline)
+### Manuális Docker futtatás:| 1 | **Containerization** | Docker + GPU támogatás | `Dockerfile` |
+
+| 2 | **Data acquisition and analysis** | JSON parser, EDA, statistikák | `01_data_acquisition_and_analysis.py` |
+
+```bash| 3 | **Data cleansing and preparation** | Text cleaning, stratified split | `02_data_cleansing_and_preparation.py` |
+
+# 1. Build| 4 | **Defining evaluation criteria** | Metrics, confusion matrix | `05_defining_evaluation_criteria.py` |
+
+docker build -t legal-text-decoder:1.0 .| 5 | **Baseline model** | TF-IDF + LogisticRegression | `03_baseline_model.py` |
+
+| 6 | **Incremental model development** | Transformer (HuBERT) fine-tuning | `04_incremental_model_development.py` |
+
+# 2. Futtatás (Windows PowerShell)| 7 | **Advanced evaluation** | Robustness + Explainability | `06_advanced_evaluation_robustness.py` <br> `07_advanced_evaluation_explainability.py` |
+
+docker run --rm --gpus all `| 8 | **ML as a service** | REST API + Web GUI | `src/api/app.py` <br> `src/frontend/app.py` |
+
+  -v "${PWD}\data:/app/data" `
+
+  -v "${PWD}\output:/app/output" `## 📋 Fő lépések (pipeline)
+
+  legal-text-decoder:1.0
 
 1. **01_data_acquisition_and_analysis.py** — JSON adatok betöltése (fájl vagy mappa), szöveg tisztítás, label kinyerés, stratifikált train/val/test split és mentés CSV-be az OUTPUT_DIR/processed mappába.
-2. **02_data_cleansing_and_preparation.py** — Egyszerű szövegstatisztikák (word_count, avg_word_len) hozzáadása és opcionális Sentence-BERT beágyazások mentése az OUTPUT_DIR/features mappába.
-3. **03_baseline_model.py** — Baseline szövegklasszifikációs modell: TF‑IDF + LogisticRegression. Modell mentése (OUTPUT_DIR/models), metrikák mentése (OUTPUT_DIR/reports).
-4. **04_incremental_model_development.py** — Transformer alapú modell (pl. HuBERT) finomhangolása a jogi szövegeken. GPU ajánlott! Modell és tokenizer mentése (OUTPUT_DIR/models/transformer_model).
-5. **05_defining_evaluation_criteria.py** — Külön értékelő script a baseline modellre a test spliten (OUTPUT_DIR/evaluation).
-6. **06_advanced_evaluation_robustness.py** — Robusztussági tesztek: zajjal és csonkolással módosított szövegeken értékeli a baseline modellt (OUTPUT_DIR/robustness).
-7. **07_advanced_evaluation_explainability.py** — Modell értelmezhetőség: top feature-ök osztályonként, predikció magyarázatok, hibaelemzés (OUTPUT_DIR/explainability).
 
-> A `src/run.sh` sorban futtatja az összes `src/*.py` fájlt (ábécérendben). Dockerben ez az alapértelmezett belépési pont.
+# 2. Futtatás (Linux/macOS)2. **02_data_cleansing_and_preparation.py** — Egyszerű szövegstatisztikák (word_count, avg_word_len) hozzáadása és opcionális Sentence-BERT beágyazások mentése az OUTPUT_DIR/features mappába.
 
-## Adatformátum (JSON)
+docker run --rm --gpus all \3. **03_baseline_model.py** — Baseline szövegklasszifikációs modell: TF‑IDF + LogisticRegression. Modell mentése (OUTPUT_DIR/models), metrikák mentése (OUTPUT_DIR/reports).
 
-Elvárt minimális séma egy elemre:
+  -v "$(pwd)/data:/app/data" \4. **04_incremental_model_development.py** — Transformer alapú modell (pl. HuBERT) finomhangolása a jogi szövegeken. GPU ajánlott! Modell és tokenizer mentése (OUTPUT_DIR/models/transformer_model).
 
-```json
-{
-	"data": { "text": "A bekezdés szövege…" },
-	"annotations": [
-		{
-			"result": [
-				{ "value": { "choices": ["Könnyen érthető"] } }
-			]
-		}
-	]
+  -v "$(pwd)/output:/app/output" \5. **05_defining_evaluation_criteria.py** — Külön értékelő script a baseline modellre a test spliten (OUTPUT_DIR/evaluation).
+
+  legal-text-decoder:1.06. **06_advanced_evaluation_robustness.py** — Robusztussági tesztek: zajjal és csonkolással módosított szövegeken értékeli a baseline modellt (OUTPUT_DIR/robustness).
+
+```7. **07_advanced_evaluation_explainability.py** — Modell értelmezhetőség: top feature-ök osztályonként, predikció magyarázatok, hibaelemzés (OUTPUT_DIR/explainability).
+
+
+
+**Futási idő:** ~45-60 perc GPU-val | ~6+ óra CPU-n> A `src/run.sh` sorban futtatja az összes `src/*.py` fájlt (ábécérendben). Dockerben ez az alapértelmezett belépési pont.
+
+
+
+---## Adatformátum (JSON)
+
+
+
+## 🎯 Követelmény-Fájl MegfeleltetésElvárt minimális séma egy elemre:
+
+
+
+| # | Követelmény | Fájl |```json
+
+|---|-------------|------|{
+
+| 1 | **Containerization** | `Dockerfile` |	"data": { "text": "A bekezdés szövege…" },
+
+| 2 | **Data acquisition** | `01_data_acquisition_and_analysis.py` |	"annotations": [
+
+| 3 | **Data cleansing** | `02_data_cleansing_and_preparation.py` |		{
+
+| 4 | **Evaluation criteria** | `05_defining_evaluation_criteria.py` |			"result": [
+
+| 5 | **Baseline model** | `03_baseline_model.py` (TF-IDF + LogReg) |				{ "value": { "choices": ["Könnyen érthető"] } }
+
+| 6 | **Incremental development** | `04_incremental_model_development.py` (HuBERT) |			]
+
+| 7 | **Advanced evaluation** | `06_advanced_evaluation_robustness.py`<br>`07_advanced_evaluation_explainability.py` |		}
+
+| 8 | **ML as a service** | `src/api/app.py` (FastAPI)<br>`src/frontend/app.py` (Streamlit) |	]
+
 }
-```
 
-Fontos: ha több annotáció/eredmény van, jelenleg az első elem első választása kerül felhasználásra.
+---```
 
-## Környezeti változók
 
-**Adatkezelés:**
-- `DATA_DIR` — Bemeneti adat mappa (alap: `/app/data` Dockerben).
-- `OUTPUT_DIR` — Kimeneti mappa (alap: `/app/output`).
 
-**Baseline modell (TF-IDF + LogisticRegression):**
+## 📋 Pipeline (7 lépés)Fontos: ha több annotáció/eredmény van, jelenleg az első elem első választása kerül felhasználásra.
+
+
+
+1. **Data Acquisition** - JSON betöltés, tisztítás, stratified split (60/20/20)## Környezeti változók
+
+2. **Data Preparation** - Szövegstatisztikák, opcionális embeddings
+
+3. **Baseline Model** - TF-IDF + LogisticRegression tanítás**Adatkezelés:**
+
+4. **Transformer Model** - HuBERT fine-tuning (GPU ajánlott!)- `DATA_DIR` — Bemeneti adat mappa (alap: `/app/data` Dockerben).
+
+5. **Evaluation** - Test set értékelés, confusion matrix- `OUTPUT_DIR` — Kimeneti mappa (alap: `/app/output`).
+
+6. **Robustness** - Zajjal és csonkolással tesztelés
+
+7. **Explainability** - Feature importance, hibaelemzés**Baseline modell (TF-IDF + LogisticRegression):**
+
 - `TFIDF_MAX_FEATURES` — TF‑IDF max jellemzők száma (alap: 20000).
-- `TFIDF_NGRAM_MAX` — TF‑IDF n-gram felső határ (alap: 2).
+
+> Pipeline orchestrator: `src/run.sh` (automatikusan fut Docker-ben)- `TFIDF_NGRAM_MAX` — TF‑IDF n-gram felső határ (alap: 2).
+
 - `LR_C` — LogisticRegression C paramétere (alap: 1.0).
 
+---
+
 **Transformer modell:**
-- `TRANSFORMER_MODEL` — Használandó transformer modell neve (alap: `SZTAKI-HLT/hubert-base-cc`).
+
+## 📄 Adatformátum (JSON)- `TRANSFORMER_MODEL` — Használandó transformer modell neve (alap: `SZTAKI-HLT/hubert-base-cc`).
+
 - `BATCH_SIZE` — Batch méret a tanításhoz (alap: 8).
-- `EPOCHS` — Tanítási epochok száma (alap: 3).
-- `LEARNING_RATE` — Tanulási ráta (alap: 2e-5).
-- `MAX_LENGTH` — Maximális szekvencia hossz tokenizáláskor (alap: 512).
 
-**Feature engineering:**
-- `ENABLE_EMBEDDINGS` — Ha `true`, Sentence‑BERT beágyazások számítása a 02-es lépésben (alap: false).
-- `EMBEDDING_MODEL` — Embedding modell neve (alap: `paraphrase-multilingual-MiniLM-L12-v2`).
+```json- `EPOCHS` — Tanítási epochok száma (alap: 3).
 
-## Futtatás Dockerrel
+{- `LEARNING_RATE` — Tanulási ráta (alap: 2e-5).
+
+  "data": { "text": "A bekezdés szövege..." },- `MAX_LENGTH` — Maximális szekvencia hossz tokenizáláskor (alap: 512).
+
+  "annotations": [{
+
+    "result": [{**Feature engineering:**
+
+      "value": { "choices": ["Könnyen érthető"] }- `ENABLE_EMBEDDINGS` — Ha `true`, Sentence‑BERT beágyazások számítása a 02-es lépésben (alap: false).
+
+    }]- `EMBEDDING_MODEL` — Embedding modell neve (alap: `paraphrase-multilingual-MiniLM-L12-v2`).
+
+  }]
+
+}## Futtatás Dockerrel
+
+```
 
 1) Image build:
 
+---
+
 ```powershell
-docker build -t deeplearning_project-legal_text_decoder:1.0 .
+
+## 📁 Projekt Struktúradocker build -t deeplearning_project-legal_text_decoder:1.0 .
+
 ```
 
-2) Konténer futtatása (PowerShell, GPU-val és volumekkel):
-
-```powershell
-docker run --rm --gpus all `
-	-v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" `
-	-v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" `
-	deeplearning_project-legal_text_decoder:1.0 > training_log.txt 2>&1
 ```
 
-Az összes kimenet az `C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output` mappában lesz elérhető (Windows host oldalon).
+├── Dockerfile, docker-compose.yml       # Containerization2) Konténer futtatása (PowerShell, GPU-val és volumekkel):
 
-## Lokális futtatás (opcionális)
+├── docker-run.sh, docker-run.ps1        # Universal launchers
 
-Python környezetben (a `requirements.txt` telepítése után) egyenként is futtathatók a scriptek:
+├── requirements.txt                     # Python deps```powershell
 
-```powershell
-$env:DATA_DIR = "C:\\path\\to\\data"; $env:OUTPUT_DIR = "C:\\path\\to\\output"; python src/01_data_acquisition_and_analysis.py
+│docker run --rm --gpus all `
+
+├── data/                                # INPUT (volume mount)	-v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" `
+
+├── output/                              # OUTPUT (volume mount)	-v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" `
+
+│   ├── processed/                       # CSV-k	deeplearning_project-legal_text_decoder:1.0 > training_log.txt 2>&1
+
+│   ├── models/                          # Trained models```
+
+│   ├── reports/                         # Metrics, plots
+
+│   ├── evaluation/, robustness/, explainability/Az összes kimenet az `C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output` mappában lesz elérhető (Windows host oldalon).
+
+│
+
+└── src/## Lokális futtatás (opcionális)
+
+    ├── run.sh                           # Pipeline orchestrator
+
+    ├── 01-07_*.py                       # Training scriptsPython környezetben (a `requirements.txt` telepítése után) egyenként is futtathatók a scriptek:
+
+    ├── api/app.py                       # REST API
+
+    └── frontend/app.py                  # Streamlit GUI```powershell
+
+```$env:DATA_DIR = "C:\\path\\to\\data"; $env:OUTPUT_DIR = "C:\\path\\to\\output"; python src/01_data_acquisition_and_analysis.py
+
 python src/02_data_cleansing_and_preparation.py
-python src/03_baseline_model.py
+
+---python src/03_baseline_model.py
+
 python src/05_defining_evaluation_criteria.py
-```
 
-## Kimenetek
+## ⚙️ Környezeti Változók (opcionális)```
 
-- `OUTPUT_DIR/processed/` — `train.csv`, `val.csv`, `test.csv` (vagy `processed_data.csv` fallback esetén) szövegstatisztikákkal kiegészítve
-- `OUTPUT_DIR/features/` — szövegstatisztika ábrák (hisztogramok), opcionális `embeddings_*.npy` és `embeddings_meta.json`
+
+
+```bash## Kimenetek
+
+# Adatkezelés
+
+DATA_DIR=/app/data- `OUTPUT_DIR/processed/` — `train.csv`, `val.csv`, `test.csv` (vagy `processed_data.csv` fallback esetén) szövegstatisztikákkal kiegészítve
+
+OUTPUT_DIR=/app/output- `OUTPUT_DIR/features/` — szövegstatisztika ábrák (hisztogramok), opcionális `embeddings_*.npy` és `embeddings_meta.json`
+
 - `OUTPUT_DIR/models/` — `baseline_model.pkl` (TF-IDF + LogReg), `transformer_model/` (finomhangolt transformer), `label_mapping.json`
-- `OUTPUT_DIR/reports/` — baseline és transformer metrikák (val/test JSON riportok), `transformer_training_history.png`
-- `OUTPUT_DIR/evaluation/` — külön teszt riport és konfúziós mátrix a baseline modellhez
-- `OUTPUT_DIR/robustness/` — robusztussági tesztek eredményei (`robustness_results.json`, `robustness_comparison.png`)
+
+# Baseline- `OUTPUT_DIR/reports/` — baseline és transformer metrikák (val/test JSON riportok), `transformer_training_history.png`
+
+TFIDF_MAX_FEATURES=20000- `OUTPUT_DIR/evaluation/` — külön teszt riport és konfúziós mátrix a baseline modellhez
+
+LR_C=1.0- `OUTPUT_DIR/robustness/` — robusztussági tesztek eredményei (`robustness_results.json`, `robustness_comparison.png`)
+
 - `OUTPUT_DIR/explainability/` — feature importance, predikció magyarázatok, hibaelemzés JSON-ben és ábrákban
 
-## Megjegyzések és ismert korlátok
+# Transformer
 
-- A stratifikált split legalább két osztályt és elegendő mintát igényel osztályonként. Kevés minta esetén hibaüzenetet kaphatsz.
-- A Sentence‑BERT beágyazások letöltése internetet és több memóriát igényelhet; alapértelmezetten ki van kapcsolva.
+TRANSFORMER_MODEL=SZTAKI-HLT/hubert-base-cc## Megjegyzések és ismert korlátok
+
+BATCH_SIZE=8
+
+EPOCHS=3- A stratifikált split legalább két osztályt és elegendő mintát igényel osztályonként. Kevés minta esetén hibaüzenetet kaphatsz.
+
+MAX_LENGTH=512- A Sentence‑BERT beágyazások letöltése internetet és több memóriát igényelhet; alapértelmezetten ki van kapcsolva.
+
 - A **transformer modell tanítása (04_incremental_model_development.py) GPU-t igényel** a hatékony futáshoz. CPU-n is fut, de sokkal lassabb.
-- A transformer modell alapértelmezetten a magyar **HuBERT** modellt használja, de ez környezeti változóval módosítható más modellekre (pl. `bert-base-multilingual-cased`).
-- Ha csak a baseline modellt szeretnéd futtatni (gyorsabb, kevesebb erőforrás), egyszerűen töröld vagy nevezd át a `04_incremental_model_development.py` fájlt a pipeline előtt.
+
+# Embeddings- A transformer modell alapértelmezetten a magyar **HuBERT** modellt használja, de ez környezeti változóval módosítható más modellekre (pl. `bert-base-multilingual-cased`).
+
+ENABLE_EMBEDDINGS=false- Ha csak a baseline modellt szeretnéd futtatni (gyorsabb, kevesebb erőforrás), egyszerűen töröld vagy nevezd át a `04_incremental_model_development.py` fájlt a pipeline előtt.
+
+```
 
 ## 🚀 Gyors Indítás
 
-```powershell
-# 1. Build
-docker build -t deeplearning_project-legal_text_decoder:1.0 .
+---
 
-# 2. Futtatás (GPU-val)
+### ⚡ **Legegyszerűbb módszer (Univerzális Script)**
+
+## 🌐 ML Service (OPCIONÁLIS - Training után)
+
+**Automatikusan felismeri a platformot és GPU-t!**
+
+### API + GUI együtt (Docker Compose):
+
+```bash
+
+```bash# Linux/macOS/Windows Git Bash
+
+# Indításbash docker-run.sh
+
+docker-compose up -d
+
+# Windows PowerShell
+
+# Elérés.\docker-run.ps1
+
+Frontend: http://localhost:8501
+
+API Docs: http://localhost:8000/docs# CPU-only kényszerítés (Windows)
+
+```.\docker-run.ps1 -CpuOnly
+
+```
+
+### Külön indítás:
+
+---
+
+```bash
+
+# API### 🐳 Docker Build (platformfüggetlen)
+
+python src/api/app.py
+
+```bash
+
+# Frontend# Bármilyen platformon
+
+streamlit run src/frontend/app.pydocker build -t deeplearning_project-legal_text_decoder:1.0 .
+
+``````
+
+
+
+**Funkciók:** Valós idejű predikció, 2 modell, vizualizációk, REST API### 🖥️ Platform-specifikus futtatás (manuális)
+
+
+
+---#### 🪟 **Windows (PowerShell)**
+
+```powershell
+
+## 🎯 Platform Támogatás# GPU-val
+
 docker run --rm --gpus all `
-  -v "C:\path\to\data:/app/data" `
-  -v "C:\path\to\output:/app/output" `
-  deeplearning_project-legal_text_decoder:1.0 > training_log.txt 2>&1
+
+| Platform | Docker | GPU | Script |  -v "${PWD}\data:/app/data" `
+
+|----------|--------|-----|--------|  -v "${PWD}\output:/app/output" `
+
+| **Windows 10/11** | Desktop + WSL2 | NVIDIA (WSL2) | `docker-run.ps1` |  deeplearning_project-legal_text_decoder:1.0
+
+| **Linux** | Engine | NVIDIA natív | `docker-run.sh` |
+
+| **macOS** | Desktop | ❌ CPU only | `docker-run.sh` |# CPU-only (nincs GPU)
+
+docker run --rm `
+
+**Követelmények:** 16GB RAM, 20GB disk, NVIDIA GPU ajánlott  -v "${PWD}\data:/app/data" `
+
+  -v "${PWD}\output:/app/output" `
+
+---  deeplearning_project-legal_text_decoder:1.0
+
+```
+
+## 🐛 Hibaelhárítás
+
+#### 🐧 **Linux**
+
+| Probléma | Megoldás |```bash
+
+|----------|----------|# GPU-val
+
+| CUDA not available | Ellenőrizd: `nvidia-smi`, Docker GPU support |docker run --rm --gpus all \
+
+| CUDA out of memory | Csökkentsd: `BATCH_SIZE=4`, `MAX_LENGTH=256` |  -v "$(pwd)/data:/app/data" \
+
+| Stratified split hiba | Min. 3-5 példa/osztály szükséges |  -v "$(pwd)/output:/app/output" \
+
+| Lassú CPU futás | Használj GPU-t vagy töröld `04_*.py` |  deeplearning_project-legal_text_decoder:1.0
+
+
+
+---# CPU-only
+
+docker run --rm \
+
+## ⏱️ Teljesítmény  -v "$(pwd)/data:/app/data" \
+
+  -v "$(pwd)/output:/app/output" \
+
+| Modell | Accuracy | Training | GPU Memory |  deeplearning_project-legal_text_decoder:1.0
+
+|--------|----------|----------|------------|```
+
+| Baseline | 60-75% | ~3 min | ~500 MB |
+
+| Transformer | 70-85% | ~40 min | ~2-4 GB |#### 🍎 **macOS**
+
+```bash
+
+---# macOS nem támogat CUDA-t, csak CPU mode
+
+docker run --rm \
+
+## 📝 Licenc  -v "$(pwd)/data:/app/data" \
+
+  -v "$(pwd)/output:/app/output" \
+
+MIT License - Lásd `LICENSE` fájl  deeplearning_project-legal_text_decoder:1.0
+
+
+# Vagy MPS (Apple Silicon) - ha PyTorch támogatja
+docker run --rm \
+  -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/output:/app/output" \
+  -e PYTORCH_ENABLE_MPS_FALLBACK=1 \
+  deeplearning_project-legal_text_decoder:1.0
 ```
 
 **Futási idő:** ~45-60 perc GPU-val | ~6+ óra CPU-n (transformer miatt)
@@ -148,6 +403,22 @@ docker run --rm --gpus all `
 - Ezek volume-ként csatolódnak a konténerbe (`/app/data` és `/app/output`)
 - A Python scriptek a konténeren belül az `/app/output` mappába mentik az eredményeket
 - A `data/` és `output/` könyvtárak **NEM** kerülnek Git verziókezelés alá (`.gitignore`)
+
+### 🎯 Platform Követelmények
+
+| Platform | Docker | GPU Support | Script | Ajánlott RAM |
+|----------|--------|-------------|--------|--------------|
+| **Windows 10/11** | Docker Desktop + WSL2 | NVIDIA GPU + WSL2 driver | `docker-run.ps1` | 16GB+ |
+| **Linux (Ubuntu/Debian)** | Docker Engine | NVIDIA GPU + nvidia-docker2 | `docker-run.sh` | 16GB+ |
+| **macOS (Intel)** | Docker Desktop | ❌ CPU only | `docker-run.sh` | 16GB+ |
+| **macOS (Apple Silicon)** | Docker Desktop | ⚠️ MPS (experimental) | `docker-run.sh` | 16GB+ |
+
+**✅ Platform-független jellemzők:**
+- Docker konténer Linux alapú (bármilyen host-on fut)
+- Python kód 100% cross-platform
+- Volume mounting automatikusan kezelt
+- UTF-8 támogatás beépítve
+- GPU automatikus detektálás
 
 ## 📋 Fő lépések (pipeline)
 
@@ -184,8 +455,11 @@ Elvárt minimális séma egy elemre:
 
 ```
 DeepLearning_Project-Legal_Text_Decoder/
-├── Dockerfile                                    # Containerization
+├── Dockerfile                                    # Containerization (cross-platform)
+├── .dockerignore                                 # Docker build optimization
 ├── docker-compose.yml                            # ML Service orchestration
+├── docker-run.sh                                 # 🚀 Universal launcher (Bash)
+├── docker-run.ps1                                # 🚀 Universal launcher (PowerShell)
 ├── requirements.txt                              # Python függőségek
 ├── README.md                                     # Dokumentáció
 ├── .gitignore                                    # Git kizárások

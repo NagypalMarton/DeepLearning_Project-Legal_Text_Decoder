@@ -1,6 +1,7 @@
 # Docker Compose for ML Service (API + Frontend)
 # This is SEPARATE from the training pipeline
 # Use this AFTER training is complete to serve the models
+# Cross-platform compatible: Windows, Linux, macOS
 
 version: '3.8'
 
@@ -15,18 +16,24 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./output:/app/output:ro  # Read-only access to models
+      # Platform-agnostic volume mounting
+      - type: bind
+        source: ./output
+        target: /app/output
+        read_only: true
     environment:
       - OUTPUT_DIR=/app/output
       - API_PORT=8000
+      - PYTHONUNBUFFERED=1
     networks:
       - legal-text-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/')"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
 
   # Frontend GUI
   frontend:
@@ -39,11 +46,19 @@ services:
       - "8501:8501"
     environment:
       - API_URL=http://api:8000
+      - PYTHONUNBUFFERED=1
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     networks:
       - legal-text-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8501/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
 networks:
   legal-text-network:
