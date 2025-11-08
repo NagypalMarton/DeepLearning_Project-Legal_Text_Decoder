@@ -8,6 +8,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Set UTF-8 encoding for proper character display
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
 # Colors
 function Write-ColorOutput {
     param([string]$Color, [string]$Message)
@@ -105,7 +109,8 @@ $dockerArgs += @(
     $IMAGE_NAME
 )
 
-& docker $dockerArgs
+# Run Docker and redirect stderr to stdout to avoid PowerShell errors on warnings
+& docker $dockerArgs 2>&1 | ForEach-Object { Write-Host $_ }
 
 $EXIT_CODE = $LASTEXITCODE
 

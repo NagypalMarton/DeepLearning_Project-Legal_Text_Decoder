@@ -16,7 +16,8 @@ from sklearn.metrics import classification_report, accuracy_score
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from tqdm import tqdm
+from tqdm.auto import tqdm
+import sys
 
 
 class LegalTextDataset(Dataset):
@@ -85,7 +86,9 @@ def train_epoch(model, dataloader, optimizer, scheduler, device):
     predictions = []
     true_labels = []
     
-    progress_bar = tqdm(dataloader, desc="Training")
+    # Disable progress bar if output is redirected to file
+    disable_tqdm = not sys.stdout.isatty()
+    progress_bar = tqdm(dataloader, desc="Training", disable=disable_tqdm)
     scaler = amp.GradScaler('cuda', enabled=os.getenv('MIXED_PRECISION', '1') == '1' and device.type == 'cuda')
     grad_acc_steps = int(os.getenv('GRAD_ACC_STEPS', '1'))
     step_count = 0
@@ -128,7 +131,9 @@ def evaluate(model, dataloader, device):
     true_labels = []
     
     with torch.no_grad():
-        progress_bar = tqdm(dataloader, desc="Evaluating")
+        # Disable progress bar if output is redirected to file
+        disable_tqdm = not sys.stdout.isatty()
+        progress_bar = tqdm(dataloader, desc="Evaluating", disable=disable_tqdm)
         mixed = os.getenv('MIXED_PRECISION', '1') == '1' and device.type == 'cuda'
         for batch in progress_bar:
             input_ids = batch['input_ids'].to(device, non_blocking=True)
