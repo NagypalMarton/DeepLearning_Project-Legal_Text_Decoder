@@ -1,9 +1,12 @@
 import os
 import json
+import re
+import unicodedata
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.model_selection import train_test_split
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -14,26 +17,34 @@ except Exception:
 	SentenceTransformer = None  # embeddings optional
 
 
-def load_split(processed_dir: str):
-	train = os.path.join(processed_dir, 'train.csv')
-	val = os.path.join(processed_dir, 'val.csv')
-	test = os.path.join(processed_dir, 'test.csv')
-	single = os.path.join(processed_dir, 'processed_data.csv')
+def clean_text(text):
+	"""Clean and preprocess text data for Hungarian legal texts."""
+	if pd.isna(text) or text == "":
+		return ""
+	text = str(text)
+	# Normalize Unicode (NFC form) to preserve accents
+	text = unicodedata.normalize('NFC', text)
+	# Collapse multiple whitespaces
+	text = re.sub(r'\s+', ' ', text)
+	# Keep word chars, whitespace, punctuation common in HU legal text
+	text = re.sub(r'[^\w\s\.,!\?;:\-–—\(\)"\'„"%/€$…]', '', text)
+	return text.strip()
 
-	if os.path.exists(train):
-		train_df = pd.read_csv(train)
-		val_df = pd.read_csv(val) if os.path.exists(val) else None
-		test_df = pd.read_csv(test) if os.path.exists(test) else None
-		return train_df, val_df, test_df
-	elif os.path.exists(single):
-		df = pd.read_csv(single)
-		return df, None, None
-	else:
-		raise FileNotFoundError(
-			f"No processed CSVs found in {processed_dir}. Run 01_data_acquisition_and_analysis.py first.")
+
+def stratified_split(df, target_column, test_size=0.2, val_size=0.2, random_state=42):
+	"""Split data into train/validation/test sets with stratification."""
+	train_val, test = train_test_split(
+		df, test_size=test_size, stratify=df[target_column], random_state=random_state
+	)
+	val_size_adjusted = val_size / (1 - test_size)
+	train, val = train_test_split(
+		train_val, test_size=val_size_adjusted, stratify=train_val[target_column], random_state=random_state
+	)
+	return train, val, test
 
 
 def add_text_stats(df: pd.DataFrame) -> pd.DataFrame:
+	"""Add basic text stats: word_count, avg_word_len."""
 	if 'text' not in df.columns:
 		return df
 	texts = df['text'].astype(str)
@@ -55,6 +66,7 @@ def save_histogram(series: pd.Series, title: str, path: str, bins: int = 50):
 
 
 def maybe_compute_embeddings(df_list, features_dir: str, model_name: str, batch_size: int = 32):
+	"""Optionally compute Sentence-BERT embeddings for train/val/test splits."""
 	if SentenceTransformer is None:
 		print("sentence-transformers not available; skipping embeddings.")
 		return None
@@ -80,156 +92,72 @@ def maybe_compute_embeddings(df_list, features_dir: str, model_name: str, batch_
 
 def main():
 	base_output = os.getenv('OUTPUT_DIR', '/app/output')
+	raw_dir = os.path.join(base_output, 'raw')
 	processed_dir = os.path.join(base_output, 'processed')
 	features_dir = os.path.join(base_output, 'features')
+	Path(processed_dir).mkdir(parents=True, exist_ok=True)
 	Path(features_dir).mkdir(parents=True, exist_ok=True)
 
-	print(f"Processed dir: {processed_dir}")
+	print(f"RAW input: {raw_dir}")
+	print(f"Processed output: {processed_dir}")
 	print(f"Features dir: {features_dir}")
 
-	train_df, val_df, test_df = load_split(processed_dir)
+	# Load EDA-filtered dataset from step 01 (already deduplicated and without missing labels)
+	raw_csv = os.path.join(raw_dir, 'raw_dataset_eda_filtered.csv')
+	if not os.path.exists(raw_csv):
+		raise FileNotFoundError(f"Missing {raw_csv}. Run 01_data_acquisition_and_analysis.py first.")
+	df_raw = pd.read_csv(raw_csv)
+	print(f"Loaded {len(df_raw)} EDA-filtered rows from {raw_csv}")
 
-	# Add simple text stats and save augmented CSVs next to originals
-	for name, df in [('train', train_df), ('val', val_df), ('test', test_df)]:
-		if df is None:
-			continue
-		aug = add_text_stats(df)
-		out_csv = os.path.join(processed_dir, f'{name}.csv')
-		aug.to_csv(out_csv, index=False, encoding='utf-8-sig')
-		print(f"Saved augmented {name}.csv with text stats -> {out_csv}")
+	# Use the already extracted label from EDA step
+	df = pd.DataFrame({
+		'text': df_raw['text_raw'],
+		'label': df_raw['label_raw']
+	})
+	print(f"Rows before cleaning: {len(df)}")
 
-	# Save histograms for EDA
-	if train_df is not None and 'text' in train_df.columns:
-		temp = add_text_stats(train_df)
-		if 'word_count' in temp.columns:
-			save_histogram(temp['word_count'], 'Word Count Distribution (Train)',
-						   os.path.join(features_dir, 'train_word_count_hist.png'))
-		if 'avg_word_len' in temp.columns:
-			save_histogram(temp['avg_word_len'], 'Average Word Length Distribution (Train)',
-						   os.path.join(features_dir, 'train_avg_word_len_hist.png'))
+	# Clean text
+	df['text'] = df['text'].apply(clean_text)
+	# Remove any remaining empty text (labels already filtered in step 01)
+	df = df[df['text'] != ''].reset_index(drop=True)
+	print(f"Rows after cleaning: {len(df)}")
 
-	# Optional embeddings (can be large and require internet)
-	enable_embeddings = os.getenv('ENABLE_EMBEDDINGS', 'false').lower() in {'1', 'true', 'yes'}
-	if enable_embeddings:
-		emb_model = os.getenv('EMBEDDING_MODEL', 'paraphrase-multilingual-MiniLM-L12-v2')
-		maybe_compute_embeddings([train_df, val_df, test_df], features_dir, emb_model)
+	# Stratified split
+	target_column = 'label'
+	if target_column in df.columns and len(df) > 10:
+		print("Performing stratified split...")
+		train_df, val_df, test_df = stratified_split(df, target_column)
+		print(f"Train set: {len(train_df)}, Val set: {len(val_df)}, Test set: {len(test_df)}")
+
+		# Add text stats to each split
+		for name, split_df in [('train', train_df), ('val', val_df), ('test', test_df)]:
+			aug = add_text_stats(split_df)
+			out_csv = os.path.join(processed_dir, f'{name}.csv')
+			aug.to_csv(out_csv, index=False, encoding='utf-8-sig')
+			print(f"Saved {name}.csv with stats -> {out_csv}")
+
+		# Clean EDA histograms (from train split)
+		if len(train_df) > 0 and 'text' in train_df.columns:
+			temp = add_text_stats(train_df)
+			if 'word_count' in temp.columns:
+				save_histogram(temp['word_count'], 'CLEAN Word Count Distribution (Train)',
+							   os.path.join(features_dir, 'clean_word_count_hist.png'))
+			if 'avg_word_len' in temp.columns:
+				save_histogram(temp['avg_word_len'], 'CLEAN Average Word Length Distribution (Train)',
+							   os.path.join(features_dir, 'clean_avg_word_len_hist.png'))
+
+		# Optional embeddings
+		enable_embeddings = os.getenv('ENABLE_EMBEDDINGS', 'false').lower() in {'1', 'true', 'yes'}
+		if enable_embeddings:
+			emb_model = os.getenv('EMBEDDING_MODEL', 'paraphrase-multilingual-MiniLM-L12-v2')
+			maybe_compute_embeddings([train_df, val_df, test_df], features_dir, emb_model)
+		else:
+			print("Embeddings disabled (set ENABLE_EMBEDDINGS=true to enable).")
 	else:
-		print("Embeddings disabled (set ENABLE_EMBEDDINGS=true to enable).")
+		print(f"Insufficient data for stratified split. Saving single file.")
+		aug = add_text_stats(df)
+		aug.to_csv(os.path.join(processed_dir, 'processed_data.csv'), index=False, encoding='utf-8-sig')
 
 
 if __name__ == '__main__':
 	main()
-
-# import os
-# import numpy as np
-# import pandas as pd
-# from sklearn.feature_extraction.text import TfidfVectorizer
-# from sklearn.ensemble import RandomForestClassifier
-# from sklearn.inspection import permutation_importance
-# from sentence_transformers import SentenceTransformer
-
-# import matplotlib.pyplot as plt
-
-# # Resolve input/output directories using environment variables for Docker
-# OUTPUT_DIR = os.getenv('OUTPUT_DIR', '/app/output/processed')
-# INPUT_DIR = OUTPUT_DIR  # processed CSVs are saved by step 01 into OUTPUT_DIR
-
-# # Ensure output directory exists
-# os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-# # Load data from previous step (01): prefer train.csv; fallback to processed_data.csv
-# train_csv = os.path.join(INPUT_DIR, 'train.csv')
-# processed_csv = os.path.join(INPUT_DIR, 'processed_data.csv')
-
-# if os.path.exists(train_csv):
-#     df = pd.read_csv(train_csv)
-# elif os.path.exists(processed_csv):
-#     df = pd.read_csv(processed_csv)
-# else:
-#     raise FileNotFoundError(
-#         f"No processed data found. Expected one of: {train_csv} or {processed_csv}. "
-#         "Run 01_data_acquisition_and_analysis.py first to generate processed CSVs."
-#     )
-
-# # texts = df['text'].astype(str).tolist()
-
-# # TF-IDF and n-gram features
-# tfidf = TfidfVectorizer(ngram_range=(1,3), max_features=1000)
-# tfidf_features = tfidf.fit_transform(texts).toarray()
-# tfidf_feature_names = tfidf.get_feature_names_out().tolist()
-
-# # Word length and sentence length features
-# word_lengths = [np.mean([len(word) for word in text.split()]) for text in texts]
-# sentence_lengths = [len(text.split()) for text in texts]
-# stat_feature_names = ["avg_word_len", "word_count"]
-
-# # Embedding-based features (Sentence-BERT)
-# # Prefer higher-accuracy multilingual model by default; allow override via env var
-# EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'paraphrase-multilingual-MiniLM-L12-v2')
-# print(f"Using embedding model: {EMBEDDING_MODEL}")
-# model = SentenceTransformer(EMBEDDING_MODEL)
-# embeddings = model.encode(texts, show_progress_bar=True)
-# emb_dim = embeddings.shape[1] if embeddings.ndim == 2 else 0
-# embedding_feature_names = [f"emb_{i}" for i in range(emb_dim)]
-
-# # Combine all features
-# features = np.hstack([
-#     tfidf_features,
-#     np.array(word_lengths).reshape(-1, 1),
-#     np.array(sentence_lengths).reshape(-1, 1),
-#     embeddings
-# ])
-# feature_names = tfidf_feature_names + stat_feature_names + embedding_feature_names
-
-# # Save features
-# features_path = os.path.join(OUTPUT_DIR, '02_features.npy')
-# np.save(features_path, features)
-
-# # Feature importance visualization (using RandomForest)
-# if 'label' in df.columns:
-#     y = df['label']
-#     rf = RandomForestClassifier(n_estimators=100, random_state=42)
-#     rf.fit(features, y)
-#     # Compute permutation importance; handle NaNs and tiny values
-#     result = permutation_importance(rf, features, y, n_repeats=15, random_state=42)
-#     importances = result.importances_mean
-#     # Sanitize importances
-#     importances = np.nan_to_num(importances, nan=0.0, posinf=0.0, neginf=0.0)
-
-#     # Fallback to model-based importances if all zeros
-#     if not np.any(importances):
-#         if hasattr(rf, 'feature_importances_'):
-#             importances = rf.feature_importances_
-#         importances = np.nan_to_num(importances, nan=0.0)
-
-#     # Visualize top 20 features
-#     plt.figure(figsize=(10,6))
-#     # Select top indices by absolute importance and filter zeros
-#     nonzero_mask = importances != 0
-#     if np.any(nonzero_mask):
-#         ranked_idx = np.argsort(np.abs(importances))
-#         top_idx = ranked_idx[-20:]
-#         top_vals = importances[top_idx]
-#         top_names = [feature_names[i] if i < len(feature_names) else f'feat_{i}' for i in top_idx]
-#         plt.barh(range(len(top_idx)), top_vals)
-#         plt.yticks(range(len(top_idx)), top_names)
-#     else:
-#         # No informative features; annotate plot
-#         plt.text(0.5, 0.5, 'All feature importances are zero/NaN', ha='center', va='center')
-#         top_idx, top_vals, top_names = [], [], []
-#     plt.xlabel("Feature Importance")
-#     plt.title("Top 20 Feature Importances")
-#     plt.tight_layout()
-#     plt.savefig(os.path.join(OUTPUT_DIR, '02_feature_importance.png'))
-#     plt.close()
-
-#     # Save importances to CSV for debugging/inspection
-#     try:
-#         all_names = [feature_names[i] if i < len(feature_names) else f'feat_{i}' for i in range(len(importances))]
-#         imp_df = pd.DataFrame({
-#             'feature': all_names,
-#             'importance': importances
-#         }).sort_values('importance', ascending=False)
-#         imp_df.to_csv(os.path.join(OUTPUT_DIR, '02_feature_importance.csv'), index=False)
-#     except Exception:
-#         pass
