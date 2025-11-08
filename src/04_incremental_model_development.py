@@ -4,9 +4,11 @@ import pickle
 from pathlib import Path
 
 import numpy as np
+import math
 import pandas as pd
 import torch
 import torch.nn as nn
+from torch import amp
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
 from torch.optim import AdamW
@@ -84,28 +86,33 @@ def train_epoch(model, dataloader, optimizer, scheduler, device):
     true_labels = []
     
     progress_bar = tqdm(dataloader, desc="Training")
+    scaler = amp.GradScaler('cuda', enabled=os.getenv('MIXED_PRECISION', '1') == '1' and device.type == 'cuda')
+    grad_acc_steps = int(os.getenv('GRAD_ACC_STEPS', '1'))
+    step_count = 0
     for batch in progress_bar:
-        optimizer.zero_grad()
+        input_ids = batch['input_ids'].to(device, non_blocking=True)
+        attention_mask = batch['attention_mask'].to(device, non_blocking=True)
+        labels = batch['label'].to(device, non_blocking=True)
         
-        input_ids = batch['input_ids'].to(device)
-        attention_mask = batch['attention_mask'].to(device)
-        labels = batch['label'].to(device)
+        with amp.autocast('cuda', enabled=scaler.is_enabled()):
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+            loss = outputs.loss / grad_acc_steps
         
-        outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-        loss = outputs.loss
+        scaler.scale(loss).backward()
+        step_count += 1
         
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.step()
-        scheduler.step()
+        if step_count % grad_acc_steps == 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad(set_to_none=True)
+            scheduler.step()
         
-        total_loss += loss.item()
-        
-        preds = torch.argmax(outputs.logits, dim=1)
+        total_loss += loss.item() * grad_acc_steps  # accumulate real loss value
+        preds = torch.argmax(outputs.logits.detach(), dim=1)
         predictions.extend(preds.cpu().numpy())
         true_labels.extend(labels.cpu().numpy())
-        
-        progress_bar.set_postfix({'loss': loss.item()})
+        progress_bar.set_postfix({'loss': (total_loss / (step_count))})
     
     avg_loss = total_loss / len(dataloader)
     accuracy = accuracy_score(true_labels, predictions)
@@ -122,17 +129,16 @@ def evaluate(model, dataloader, device):
     
     with torch.no_grad():
         progress_bar = tqdm(dataloader, desc="Evaluating")
+        mixed = os.getenv('MIXED_PRECISION', '1') == '1' and device.type == 'cuda'
         for batch in progress_bar:
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            labels = batch['label'].to(device)
-            
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-            loss = outputs.loss
-            
+            input_ids = batch['input_ids'].to(device, non_blocking=True)
+            attention_mask = batch['attention_mask'].to(device, non_blocking=True)
+            labels = batch['label'].to(device, non_blocking=True)
+            with amp.autocast('cuda', enabled=mixed):
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+                loss = outputs.loss
             total_loss += loss.item()
-            
-            preds = torch.argmax(outputs.logits, dim=1)
+            preds = torch.argmax(outputs.logits.detach(), dim=1)
             predictions.extend(preds.cpu().numpy())
             true_labels.extend(labels.cpu().numpy())
     
@@ -185,10 +191,10 @@ def main():
     
     # Hyperparameters
     model_name = os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc')  # Hungarian BERT
-    batch_size = int(os.getenv('BATCH_SIZE', '8'))
+    batch_size = int(os.getenv('BATCH_SIZE', '4'))  # default tuned for 4GB VRAM
     epochs = int(os.getenv('EPOCHS', '3'))
     learning_rate = float(os.getenv('LEARNING_RATE', '2e-5'))
-    max_length = int(os.getenv('MAX_LENGTH', '512'))
+    max_length = int(os.getenv('MAX_LENGTH', '256'))
     
     print(f"Loading data from {processed_dir}")
     train_df, val_df, test_df = load_split_csv(processed_dir)
@@ -209,6 +215,11 @@ def main():
     # Check for CUDA availability
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
+    if device.type == 'cuda':
+        gpu_name = torch.cuda.get_device_name(0)
+        total_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        print(f"GPU: {gpu_name} | Total VRAM: {total_mem:.2f} GB")
+        torch.backends.cudnn.benchmark = True
     
     # Load tokenizer and model
     print(f"Loading transformer model: {model_name}")
@@ -224,7 +235,8 @@ def main():
     # Prepare datasets
     X_train = train_df['text'].astype(str).tolist()
     train_dataset = LegalTextDataset(X_train, y_train, tokenizer, max_length)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    num_workers = int(os.getenv('NUM_WORKERS', '2'))
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=device.type=='cuda', num_workers=num_workers)
     
     val_loader = None
     if val_df is not None:
@@ -232,11 +244,13 @@ def main():
         y_val = [label2id[label] for label in y_val_str]
         X_val = val_df['text'].astype(str).tolist()
         val_dataset = LegalTextDataset(X_val, y_val, tokenizer, max_length)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, pin_memory=device.type=='cuda', num_workers=num_workers)
     
     # Optimizer and scheduler
     optimizer = AdamW(model.parameters(), lr=learning_rate)
-    total_steps = len(train_loader) * epochs
+    grad_acc_steps = int(os.getenv('GRAD_ACC_STEPS', '1'))
+    effective_steps_per_epoch = math.ceil(len(train_loader) / max(1, grad_acc_steps))
+    total_steps = effective_steps_per_epoch * epochs
     scheduler = get_linear_schedule_with_warmup(
         optimizer,
         num_warmup_steps=int(0.1 * total_steps),
@@ -245,6 +259,7 @@ def main():
     
     # Training loop
     print(f"Starting training for {epochs} epochs...")
+    print(f"Mixed precision: {'ON' if (os.getenv('MIXED_PRECISION','1')=='1' and device.type=='cuda') else 'OFF'} | Grad Acc Steps: {grad_acc_steps}")
     history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
     
     for epoch in range(epochs):
@@ -279,22 +294,18 @@ def main():
         y_test = [label2id[label] for label in y_test_str]
         X_test = test_df['text'].astype(str).tolist()
         test_dataset = LegalTextDataset(X_test, y_test, tokenizer, max_length)
-        test_loader = DataLoader(test_dataset, batch_size=batch_size)
-        
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, pin_memory=device.type=='cuda', num_workers=num_workers)
         test_loss, test_acc, predictions, true_labels = evaluate(model, test_loader, device)
         print(f"\nTest Loss: {test_loss:.4f}, Test Accuracy: {test_acc:.4f}")
-        
         # Generate classification report
-        pred_labels_str = [id2label[str(pred)] for pred in predictions]
-        true_labels_str = [id2label[str(label)] for label in true_labels]
-        
+        pred_labels_str = [id2label[int(pred)] for pred in predictions]
+        true_labels_str = [id2label[int(label)] for label in true_labels]
         report = classification_report(
             true_labels_str,
             pred_labels_str,
             output_dict=True,
             zero_division=0
         )
-        
         report_path = os.path.join(reports_dir, 'transformer_test_report.json')
         with open(report_path, 'w', encoding='utf-8') as f:
             json.dump(report, f, ensure_ascii=False, indent=2)

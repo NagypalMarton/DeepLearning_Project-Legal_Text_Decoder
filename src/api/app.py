@@ -90,6 +90,11 @@ def load_transformer_model():
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model.to(device)
         model.eval()
+        try:
+            if device.type == 'cuda':
+                print(f"API using GPU: {torch.cuda.get_device_name(0)}")
+        except Exception:
+            pass
         
         return {
             'model': model,
@@ -236,8 +241,11 @@ def predict_transformer(text: str) -> PredictionResponse:
     
     # Predict
     with torch.no_grad():
-        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-        logits = outputs.logits
+        use_mixed = device.type == 'cuda'
+        from torch import amp as torch_amp
+        with torch_amp.autocast('cuda', enabled=use_mixed):
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            logits = outputs.logits
         probabilities = torch.softmax(logits, dim=1)[0]
         predicted_class = torch.argmax(probabilities).item()
     
