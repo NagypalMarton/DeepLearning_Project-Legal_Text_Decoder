@@ -341,6 +341,55 @@ def plot_correlation_matrix(df: pd.DataFrame, features_dir: str):
     print(f"Saved correlation matrix -> {out_path}")
 
 
+def plot_top_confusion_pairs(df: pd.DataFrame, features_dir: str):
+    """Plot top confusion pairs: szomszédos címkék közötti potenciális összekeverés.
+    
+    A tisztított adatokon alapul (szűrés után), és a címkék numerikus
+    távolsága alapján azonosítja a leggyakoribb szomszédos párokat.
+    Pl. '4-Érthető' vs '5-Könnyen érthető' gyakori keveredés lehet.
+    """
+    if 'label_raw' not in df.columns:
+        print("Skipping confusion pairs: no label_raw column")
+        return
+    
+    # Numerikus címke értékek kinyerése (1-5 skála)
+    df_analysis = df.copy()
+    df_analysis['label_numeric'] = df_analysis['label_raw'].astype(str).str.extract(r'(\d+)')[0].astype(float)
+    
+    # Címke párok számlálása: szomszédos címkék (távolság = 1)
+    label_pairs = []
+    for label_num in sorted(df_analysis['label_numeric'].dropna().unique()):
+        neighbor = label_num + 1
+        if neighbor in df_analysis['label_numeric'].values:
+            # Mindkét címke szövegének megtalálása
+            label_1 = df_analysis[df_analysis['label_numeric'] == label_num]['label_raw'].iloc[0]
+            label_2 = df_analysis[df_analysis['label_numeric'] == neighbor]['label_raw'].iloc[0]
+            count_1 = len(df_analysis[df_analysis['label_numeric'] == label_num])
+            count_2 = len(df_analysis[df_analysis['label_numeric'] == neighbor])
+            # Potenciális confusion: mindkét címke gyakorisága
+            avg_count = (count_1 + count_2) / 2
+            label_pairs.append((f"{label_1} ↔ {label_2}", avg_count))
+    
+    if not label_pairs:
+        print("No confusion pairs to plot")
+        return
+    
+    # Top 5 leggyakoribb szomszédos pár
+    label_pairs = sorted(label_pairs, key=lambda x: x[1], reverse=True)[:5]
+    pair_names, pair_counts = zip(*label_pairs)
+    
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.barh(pair_names, pair_counts, color='#F58518')
+    ax.set_xlabel('Átlagos mintaszám (potenciális összekeverés)')
+    ax.set_title('Top Confusion Pairs (szomszédos címkék)')
+    fig.tight_layout()
+    
+    out_path = os.path.join(features_dir, 'top_confusion_pairs.png')
+    fig.savefig(out_path)
+    plt.close(fig)
+    print(f"Saved top confusion pairs -> {out_path}")
+
+
 def raw_eda(df: pd.DataFrame, features_dir: str):
     """Compute and save simple EDA plots on RAW text (no cleaning)."""
     texts = df.get('text_raw', pd.Series([], dtype=str)).astype(str)
@@ -506,6 +555,13 @@ def eda_label_analysis(df: pd.DataFrame, raw_dir: str, features_dir: str):
         print("✓ Correlation matrix saved")
     except Exception as e:
         print(f"✗ Correlation matrix failed: {e}")
+    
+    # Top confusion pairs analysis (label co-occurrence)
+    try:
+        plot_top_confusion_pairs(df, features_dir)
+        print("✓ Top confusion pairs plot saved")
+    except Exception as e:
+        print(f"✗ Top confusion pairs failed: {e}")
     
     # Save enhanced EDA dataset with all metrics
     try:
