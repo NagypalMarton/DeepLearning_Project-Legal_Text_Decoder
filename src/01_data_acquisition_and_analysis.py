@@ -633,7 +633,7 @@ if __name__ == '__main__':
     base_output = os.getenv('OUTPUT_DIR', '/app/output')
 
     raw_dir = os.path.join(base_output, 'raw')
-    features_dir = os.path.join(base_output, 'features')
+    features_dir = os.path.join(base_output, 'reports')
 
     print(f"Input path: {data_dir}")
     print(f"RAW output: {raw_dir}")

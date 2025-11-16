@@ -96,13 +96,13 @@ def main():
 	base_output = os.getenv('OUTPUT_DIR', '/app/output')
 	raw_dir = os.path.join(base_output, 'raw')
 	processed_dir = os.path.join(base_output, 'processed')
-	features_dir = os.path.join(base_output, 'features')
+	features_dir = os.path.join(base_output, 'reports')
 	Path(processed_dir).mkdir(parents=True, exist_ok=True)
 	Path(features_dir).mkdir(parents=True, exist_ok=True)
 
 	print(f"RAW input: {raw_dir}")
 	print(f"Processed output: {processed_dir}")
-	print(f"Features dir: {features_dir}")
+	print(f"Reports dir (metrics/plots): {features_dir}")
 
 	# Load EDA-filtered dataset from step 01 (already deduplicated and without missing labels)
 	raw_csv = os.path.join(raw_dir, 'raw_dataset_eda_filtered.csv')

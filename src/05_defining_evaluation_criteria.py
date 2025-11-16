@@ -16,9 +16,9 @@ import sys
 
 
 def ensure_eval_dir(base_output: str):
-	eval_dir = os.path.join(base_output, 'evaluation')
-	Path(eval_dir).mkdir(parents=True, exist_ok=True)
-	return eval_dir
+	reports_dir = os.path.join(base_output, 'reports')
+	Path(reports_dir).mkdir(parents=True, exist_ok=True)
+	return reports_dir
 
 
 class TransformerDataset(Dataset):

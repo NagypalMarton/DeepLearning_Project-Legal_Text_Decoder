@@ -156,7 +156,7 @@ def main():
     base_output = os.getenv('OUTPUT_DIR', '/app/output')
     processed_dir = os.path.join(base_output, 'processed')
     models_dir = os.path.join(base_output, 'models')
-    robustness_dir = os.path.join(base_output, 'robustness')
+    robustness_dir = os.path.join(base_output, 'reports')
     
     Path(robustness_dir).mkdir(parents=True, exist_ok=True)
     

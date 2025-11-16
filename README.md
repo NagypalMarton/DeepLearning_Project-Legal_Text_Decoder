@@ -96,11 +96,11 @@ Példák: `01-acquisition_raw_eda_statistics.txt`, `03-baseline_test_confusion_m
 - `output/raw/raw_dataset_eda_filtered.csv` — deduplikált, szűrt snapshot
 - `output/raw/raw_dataset_eda_enhanced.csv` — összes metrikával bővített adathalmaz
 - `output/raw/removed_duplicates.csv`, `output/raw/removed_missing_labels.csv`
-- `output/features/01-acquisition_raw_eda_statistics.txt`
-- `output/features/01-acquisition_raw_label_distribution.png`
-- `output/features/01-acquisition_correlation_matrix.png`
-- `output/features/01-acquisition_tfidf_top_words_by_label.csv`
-- `output/features/01-acquisition_*_by_label.png` — 6 db boxplot (olvashatóság + diverzitás)
+- `output/reports/01-acquisition_raw_eda_statistics.txt`
+- `output/reports/01-acquisition_raw_label_distribution.png`
+- `output/reports/01-acquisition_correlation_matrix.png`
+- `output/reports/01-acquisition_tfidf_top_words_by_label.csv`
+- `output/reports/01-acquisition_*_by_label.png` — 6 db boxplot (olvashatóság + diverzitás)
 
 ### 2. 02_data_cleansing_and_preparation.py
 **Cél:** Szövegtisztítás és train/val/test split
@@ -115,8 +115,8 @@ Példák: `01-acquisition_raw_eda_statistics.txt`, `03-baseline_test_confusion_m
 
 **Kimenetek:**
 - `output/processed/train.csv`, `val.csv`, `test.csv`
-- `output/features/02-preparation_clean_word_count_hist.png`
-- `output/features/02-preparation_clean_avg_word_len_hist.png`
+- `output/reports/02-preparation_clean_word_count_hist.png`
+- `output/reports/02-preparation_clean_avg_word_len_hist.png`
 
 
 ### 3. 03_baseline_model.py (opcionális)
@@ -144,24 +144,24 @@ Példák: `01-acquisition_raw_eda_statistics.txt`, `03-baseline_test_confusion_m
 **Cél:** Transformer batch inference, metrikák, confusion matrix
 
 **Kimenetek:**
-- `output/evaluation/05-evaluation_test_report.json`
-- `output/evaluation/05-evaluation_test_confusion_matrix.png`
+- `output/reports/05-evaluation_test_report.json`
+- `output/reports/05-evaluation_test_confusion_matrix.png`
 
 ### 6. 06_advanced_evaluation_robustness.py
 **Cél:** Transformer robustness tesztek (zaj, csonkítás, stb.)
 
 **Kimenetek:**
-- `output/robustness/06-robustness_results.json`
-- `output/robustness/06-robustness_comparison.png`
+- `output/reports/06-robustness_results.json`
+- `output/reports/06-robustness_comparison.png`
 
 ### 7. 07_advanced_evaluation_explainability.py
 **Cél:** Transformer attention-alapú magyarázhatóság, hibaanalízis, confusion pairs
 
 **Kimenetek:**
-- `output/explainability/07-explainability_attention_importance.json`
-- `output/explainability/07-explainability_attention_summary.json`
-- `output/explainability/07-explainability_misclassification_analysis.json`
-- `output/explainability/07-explainability_top_confusion_pairs.png`
+- `output/reports/07-explainability_attention_importance.json`
+- `output/reports/07-explainability_attention_summary.json`
+- `output/reports/07-explainability_misclassification_analysis.json`
+- `output/reports/07-explainability_top_confusion_pairs.png`
 
 > A `src/run.sh` sorban futtatja az összes `src/*.py` fájlt (01→07). Dockerben ez az alapértelmezett belépési pont. A baseline (03) opcionális; a fő pipeline a transformer modellt használja minden értékeléshez.
 
@@ -246,7 +246,7 @@ Az összes mérési és vizuális kimenet lépés-prefixet kap az egyszerű viss
 - `raw_dataset.csv`, `raw_dataset_eda_filtered.csv`, `raw_dataset_eda_enhanced.csv`
 - `removed_duplicates.csv`, `removed_missing_labels.csv`
 
-### `output/features/`
+### `output/reports/` (EDA és cleaning)
 - `01-acquisition_raw_eda_statistics.txt`, `01-acquisition_raw_label_distribution.png`
 - `01-acquisition_correlation_matrix.png`, `01-acquisition_tfidf_top_words_by_label.csv`
 - `01-acquisition_*_by_label.png` (6 db)
@@ -267,15 +267,15 @@ Az összes mérési és vizuális kimenet lépés-prefixet kap az egyszerű viss
 - `04-transformer_training_history.png` — loss/accuracy/macro-F1 görbék
 - `04-transformer_test_report.json` — test metrikák (Accuracy, Macro/Weighted F1, MAE, RMSE, per-class)
 
-### `output/evaluation/`
+### `output/reports/` (evaluation)
 - `05-evaluation_test_report.json` — részletes metrikák (Accuracy, Macro/Weighted F1, MAE, RMSE)
 - `05-evaluation_test_confusion_matrix.png` — confusion matrix
 
-### `output/robustness/`
+### `output/reports/` (robustness)
 - `06-robustness_results.json` — robusztussági tesztek eredményei (Macro/Weighted F1)
 - `06-robustness_comparison.png` — összehasonlító ábra
 
-### `output/explainability/`
+### `output/reports/` (explainability)
 - `07-explainability_attention_importance.json` — attention-alapú token fontosság
 - `07-explainability_attention_summary.json` — osztályonkénti összegzések
 - `07-explainability_misclassification_analysis.json` — hibaanalízis
