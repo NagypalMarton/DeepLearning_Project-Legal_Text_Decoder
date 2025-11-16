@@ -1,14 +1,18 @@
 import os
 import json
-import pickle
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import torch
+from torch.utils.data import Dataset, DataLoader
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from sklearn.metrics import classification_report, accuracy_score
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from tqdm.auto import tqdm
+import sys
 
 
 def add_noise_to_text(text, noise_level=0.1):
@@ -43,10 +47,62 @@ def truncate_text(text, ratio=0.5):
     return ' '.join(words[:n_words])
 
 
-def test_robustness(model, X_test, y_test, test_name, transformation_func, transformation_params):
+class TransformerDataset(Dataset):
+    """Dataset for transformer inference."""
+    def __init__(self, texts, tokenizer, max_length=384):
+        self.texts = texts
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+    
+    def __len__(self):
+        return len(self.texts)
+    
+    def __getitem__(self, idx):
+        text = str(self.texts[idx])
+        encoding = self.tokenizer(
+            text,
+            add_special_tokens=True,
+            max_length=self.max_length,
+            padding='max_length',
+            truncation=True,
+            return_tensors='pt'
+        )
+        return {
+            'input_ids': encoding['input_ids'].flatten(),
+            'attention_mask': encoding['attention_mask'].flatten()
+        }
+
+
+def predict_with_transformer(model, tokenizer, texts, device, batch_size=8, id2label=None):
+    """Run batch inference with transformer model."""
+    dataset = TransformerDataset(texts, tokenizer, max_length=384)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    
+    predictions = []
+    disable_tqdm = not sys.stdout.isatty()
+    
+    model.eval()
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc="Predicting", disable=disable_tqdm, leave=False):
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            logits = outputs.logits
+            preds = torch.argmax(logits, dim=1)
+            
+            if id2label:
+                predictions.extend([id2label[int(p)] for p in preds.cpu().numpy()])
+            else:
+                predictions.extend(preds.cpu().numpy().tolist())
+    
+    return predictions
+
+
+def test_robustness(model, tokenizer, X_test, y_test, device, test_name, transformation_func, transformation_params, id2label, batch_size=8):
     """Test model robustness with a specific text transformation."""
     X_transformed = [transformation_func(text, **transformation_params) for text in X_test]
-    y_pred = model.predict(X_transformed)
+    y_pred = predict_with_transformer(model, tokenizer, X_transformed, device, batch_size, id2label)
     
     accuracy = accuracy_score(y_test, y_pred)
     labels = sorted(list(set(y_test) | set(y_pred)))
@@ -94,14 +150,32 @@ def main():
     
     Path(robustness_dir).mkdir(parents=True, exist_ok=True)
     
-    # Load model
-    model_path = os.path.join(models_dir, 'baseline_model.pkl')
-    if not os.path.exists(model_path):
-        print(f"Model not found at {model_path}. Train the baseline first.")
+    # Load transformer model
+    model_path = os.path.join(models_dir, 'best_transformer_model')
+    if not os.path.isdir(model_path):
+        print(f"Transformer model not found at {model_path}. Train the transformer first.")
         return
     
-    with open(model_path, 'rb') as f:
-        model = pickle.load(f)
+    # Load label mapping
+    label_map_path = os.path.join(models_dir, 'label_mapping.json')
+    if not os.path.exists(label_map_path):
+        print(f"Label mapping not found at {label_map_path}.")
+        return
+    
+    with open(label_map_path, 'r', encoding='utf-8') as f:
+        label_mapping = json.load(f)
+        id2label = {int(k): v for k, v in label_mapping['id2label'].items()}
+    
+    # Setup device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+    
+    # Load model and tokenizer
+    print(f"Loading transformer model from {model_path}...")
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    model = AutoModelForSequenceClassification.from_pretrained(model_path)
+    model.to(device)
+    model.eval()
     
     # Load test data
     test_path = os.path.join(processed_dir, 'test.csv')
@@ -112,6 +186,8 @@ def main():
     test_df = pd.read_csv(test_path)
     X_test = test_df['text'].astype(str).tolist()
     y_test = test_df['label'].astype(str).tolist()
+    
+    batch_size = int(os.getenv('BATCH_SIZE', '8'))
     
     print("Running robustness tests...")
     
@@ -158,10 +234,12 @@ def main():
     for test in tests:
         print(f"Running test: {test['name']}")
         result = test_robustness(
-            model, X_test, y_test,
+            model, tokenizer, X_test, y_test, device,
             test['name'],
             test['func'],
-            test['params']
+            test['params'],
+            id2label,
+            batch_size
         )
         results.append(result)
         print(f"  Accuracy: {result['accuracy']:.4f}")

@@ -417,13 +417,15 @@ def main():
                     print(f"Early stopping triggered (no improvement in {early_stopping_patience} epochs)")
                     break
     
-    # Save model
-    model_path = os.path.join(models_dir, 'transformer_model')
-    model.save_pretrained(model_path)
-    tokenizer.save_pretrained(model_path)
-    print(f"Model saved to {model_path}")
+    # Load best checkpoint as the final model
     if os.path.isdir(best_model_path):
-        print(f"Best checkpoint available at {best_model_path}")
+        print(f"\nLoading BEST checkpoint from {best_model_path} as final model...")
+        model = AutoModelForSequenceClassification.from_pretrained(best_model_path)
+        model.to(device)
+        tokenizer = AutoTokenizer.from_pretrained(best_model_path)
+        print(f"Best checkpoint loaded (metric {save_best_metric} = {best_metric_val:.4f})")
+    else:
+        print(f"\nWarning: Best checkpoint not found, using current model state")
     
     # Plot training history
     history_plot_path = os.path.join(reports_dir, 'transformer_training_history.png')
@@ -432,14 +434,6 @@ def main():
     
     # Evaluate on test set if available
     if test_df is not None:
-        # Load the best checkpoint for testing (not the final model)
-        if os.path.isdir(best_model_path):
-            print(f"\nLoading BEST checkpoint from {best_model_path} for test evaluation...")
-            model = AutoModelForSequenceClassification.from_pretrained(best_model_path)
-            model.to(device)
-            tokenizer = AutoTokenizer.from_pretrained(best_model_path)
-        else:
-            print(f"\nBest checkpoint not found, using final model for test evaluation")
         
         y_test_str = test_df['label'].astype(str).tolist()
         y_test = [label2id[label] for label in y_test_str]

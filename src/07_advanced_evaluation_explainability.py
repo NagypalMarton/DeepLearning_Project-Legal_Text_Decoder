@@ -1,142 +1,171 @@
 import os
 import json
-import pickle
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
+import torch
+from torch.utils.data import Dataset, DataLoader
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from tqdm.auto import tqdm
+import sys
 
 
-def get_top_features_per_class(model, feature_names, top_n=20):
-    """Extract top features (words) for each class from a linear model."""
-    results = {}
+class TransformerDataset(Dataset):
+    """Dataset for transformer inference."""
+    def __init__(self, texts, tokenizer, max_length=384):
+        self.texts = texts
+        self.tokenizer = tokenizer
+        self.max_length = max_length
     
-    try:
-        # For Pipeline with LogisticRegression
-        if hasattr(model, 'named_steps'):
-            lr_model = model.named_steps.get('lr')
-            if lr_model is None:
-                print("No 'lr' step found in pipeline")
-                return results
-        else:
-            lr_model = model
-        
-        if not hasattr(lr_model, 'coef_'):
-            print("Model does not have coefficients (not a linear model)")
-            return results
-        
-        coef = lr_model.coef_
-        classes = lr_model.classes_ if hasattr(lr_model, 'classes_') else range(coef.shape[0])
-        
-        for idx, class_label in enumerate(classes):
-            # Get coefficients for this class
-            if coef.ndim == 1:
-                # Binary classification
-                class_coef = coef
+    def __len__(self):
+        return len(self.texts)
+    
+    def __getitem__(self, idx):
+        text = str(self.texts[idx])
+        encoding = self.tokenizer(
+            text,
+            add_special_tokens=True,
+            max_length=self.max_length,
+            padding='max_length',
+            truncation=True,
+            return_tensors='pt'
+        )
+        return {
+            'input_ids': encoding['input_ids'].flatten(),
+            'attention_mask': encoding['attention_mask'].flatten(),
+            'text': text
+        }
+
+
+def predict_with_transformer(model, tokenizer, texts, device, batch_size=8, id2label=None, return_probs=False):
+    """Run batch inference with transformer model."""
+    dataset = TransformerDataset(texts, tokenizer, max_length=384)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    
+    predictions = []
+    probabilities = []
+    disable_tqdm = not sys.stdout.isatty()
+    
+    model.eval()
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc=\"Predicting\", disable=disable_tqdm):
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            logits = outputs.logits
+            preds = torch.argmax(logits, dim=1)
+            
+            if return_probs:
+                probs = torch.softmax(logits, dim=1)
+                probabilities.extend(probs.cpu().numpy())
+            
+            if id2label:
+                predictions.extend([id2label[int(p)] for p in preds.cpu().numpy()])
             else:
-                # Multi-class classification
-                class_coef = coef[idx]
-            
-            # Get top positive coefficients (most indicative)
-            top_indices = np.argsort(class_coef)[-top_n:][::-1]
-            top_features = [(feature_names[i], class_coef[i]) for i in top_indices]
-            
-            results[str(class_label)] = {
-                'top_features': top_features,
-                'top_indices': top_indices.tolist()
-            }
+                predictions.extend(preds.cpu().numpy().tolist())
     
-    except Exception as e:
-        print(f"Error extracting features: {e}")
+    if return_probs:
+        return predictions, probabilities
+    return predictions
+
+
+def get_attention_based_importance(model, tokenizer, texts, labels, device, n_examples=5):
+    """Extract attention-based token importance for sample texts.
+    
+    Note: This is a simplified version. Full attention visualization would require
+    extracting attention weights from intermediate layers.
+    """
+    results = []
+    
+    model.eval()
+    for i, text in enumerate(texts[:n_examples]):
+        encoding = tokenizer(
+            text,
+            add_special_tokens=True,
+            max_length=384,
+            padding='max_length',
+            truncation=True,
+            return_tensors='pt'
+        )
+        
+        input_ids = encoding['input_ids'].to(device)
+        attention_mask = encoding['attention_mask'].to(device)
+        
+        with torch.no_grad():
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask, output_attentions=True)
+            logits = outputs.logits
+            attentions = outputs.attentions  # tuple of attention weights per layer
+            
+            # Get prediction
+            pred_class = torch.argmax(logits, dim=1).item()
+            probs = torch.softmax(logits, dim=1)[0]
+            
+            # Average attention across all layers and heads
+            avg_attention = torch.stack([att.mean(dim=1) for att in attentions]).mean(dim=0)[0]
+            
+            # Get tokens and their attention scores
+            tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+            attention_scores = avg_attention.mean(dim=0).cpu().numpy()  # average across attention to all positions
+            
+            # Filter out padding tokens
+            valid_tokens = []
+            valid_scores = []
+            for token, score in zip(tokens, attention_scores):
+                if token not in ['[PAD]', '[CLS]', '[SEP]']:
+                    valid_tokens.append(token)
+                    valid_scores.append(float(score))
+            
+            # Get top 10 attended tokens
+            top_indices = np.argsort(valid_scores)[-10:][::-1]
+            top_tokens = [(valid_tokens[idx], valid_scores[idx]) for idx in top_indices if idx < len(valid_tokens)]
+            
+            results.append({
+                'example_id': i,
+                'text_preview': text[:200] + ('...' if len(text) > 200 else ''),
+                'true_label': str(labels[i]),
+                'predicted_class_id': pred_class,
+                'prediction_probabilities': probs.cpu().numpy().tolist(),
+                'top_attended_tokens': top_tokens
+            })
     
     return results
 
 
-def plot_top_features(feature_importance, save_path, max_classes=5):
-    """Plot top features for each class."""
-    n_classes = min(len(feature_importance), max_classes)
-    
-    if n_classes == 0:
-        print("No feature importance data to plot")
+def plot_confusion_pairs(confusion_pairs, save_path, top_n=10):
+    """Plot top confusion pairs."""
+    if not confusion_pairs:
+        print("No confusion pairs to plot")
         return
     
-    fig, axes = plt.subplots(n_classes, 1, figsize=(12, 4 * n_classes))
+    pairs = confusion_pairs[:top_n]
+    pair_labels = [f"{p['true_label']} → {p['predicted_label']}" for p in pairs]
+    counts = [p['count'] for p in pairs]
     
-    if n_classes == 1:
-        axes = [axes]
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.barh(pair_labels, counts, color='coral')
+    ax.set_xlabel('Count')
+    ax.set_title('Top Confusion Pairs - Transformer')
+    ax.invert_yaxis()
     
-    for idx, (class_label, data) in enumerate(list(feature_importance.items())[:max_classes]):
-        ax = axes[idx]
-        features = data['top_features'][:15]  # Top 15
-        
-        words = [f[0] for f in features]
-        scores = [f[1] for f in features]
-        
-        y_pos = np.arange(len(words))
-        ax.barh(y_pos, scores, align='center', color='steelblue')
-        ax.set_yticks(y_pos)
-        ax.set_yticklabels(words)
-        ax.invert_yaxis()
-        ax.set_xlabel('Coefficient Value')
-        ax.set_title(f'Top Features for Class: {class_label}')
-        ax.grid(axis='x', alpha=0.3)
+    for i, (pair, count) in enumerate(zip(pair_labels, counts)):
+        ax.text(count, i, f' {count}', va='center')
     
     fig.tight_layout()
-    fig.savefig(save_path, bbox_inches='tight')
+    fig.savefig(save_path)
     plt.close(fig)
-    print(f"Feature importance plot saved to {save_path}")
+    print(f"Confusion pairs plot saved to {save_path}")
 
 
-def explain_predictions(model, texts, labels, feature_names, n_examples=5):
-    """Explain predictions for sample texts."""
-    explanations = []
-    
-    for i in range(min(n_examples, len(texts))):
-        text = texts[i]
-        true_label = labels[i]
-        
-        # Get prediction
-        pred_label = model.predict([text])[0]
-        
-        # Get prediction probabilities if available
-        try:
-            proba = model.predict_proba([text])[0]
-            classes = model.classes_ if hasattr(model, 'classes_') else list(range(len(proba)))
-            
-            # Get top 3 predicted classes with probabilities
-            top_indices = np.argsort(proba)[-3:][::-1]
-            top_predictions = [
-                {'class': str(classes[idx]), 'probability': float(proba[idx])}
-                for idx in top_indices
-            ]
-        except Exception:
-            top_predictions = [{'class': str(pred_label), 'probability': 1.0}]
-        
-        explanation = {
-            'example_id': i,
-            'text': text[:200] + ('...' if len(text) > 200 else ''),
-            'true_label': str(true_label),
-            'predicted_label': str(pred_label),
-            'top_predictions': top_predictions,
-            'correct': str(pred_label) == str(true_label)
-        }
-        
-        explanations.append(explanation)
-    
-    return explanations
-
-
-def analyze_misclassifications(model, X_test, y_test, feature_importance):
+def analyze_misclassifications(y_test, y_pred, X_test):
     """Analyze common misclassification patterns."""
-    predictions = model.predict(X_test)
-    
     # Find misclassified examples
     misclassified = []
-    for i, (pred, true) in enumerate(zip(predictions, y_test)):
+    for i, (pred, true) in enumerate(zip(y_pred, y_test)):
         if pred != true:
             misclassified.append({
                 'index': i,
@@ -178,14 +207,32 @@ def main():
     
     Path(explainability_dir).mkdir(parents=True, exist_ok=True)
     
-    # Load model
-    model_path = os.path.join(models_dir, 'baseline_model.pkl')
-    if not os.path.exists(model_path):
-        print(f"Model not found at {model_path}. Train the baseline first.")
+    # Load transformer model
+    model_path = os.path.join(models_dir, 'best_transformer_model')
+    if not os.path.isdir(model_path):
+        print(f"Transformer model not found at {model_path}. Train the transformer first.")
         return
     
-    with open(model_path, 'rb') as f:
-        model = pickle.load(f)
+    # Load label mapping
+    label_map_path = os.path.join(models_dir, 'label_mapping.json')
+    if not os.path.exists(label_map_path):
+        print(f"Label mapping not found at {label_map_path}.")
+        return
+    
+    with open(label_map_path, 'r', encoding='utf-8') as f:
+        label_mapping = json.load(f)
+        id2label = {int(k): v for k, v in label_mapping['id2label'].items()}
+    
+    # Setup device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+    
+    # Load model and tokenizer
+    print(f"Loading transformer model from {model_path}...")
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    model = AutoModelForSequenceClassification.from_pretrained(model_path)
+    model.to(device)
+    model.eval()
     
     # Load test data
     test_path = os.path.join(processed_dir, 'test.csv')
@@ -197,62 +244,40 @@ def main():
     X_test = test_df['text'].astype(str).tolist()
     y_test = test_df['label'].astype(str).tolist()
     
+    batch_size = int(os.getenv('BATCH_SIZE', '8'))
+    
     print("Analyzing model explainability...")
     
-    # Extract feature names from TF-IDF vectorizer
+    # Get predictions for all test samples
+    print("Running predictions on test set...")
+    y_pred = predict_with_transformer(model, tokenizer, X_test, device, batch_size, id2label)
+    
+    # Attention-based importance for sample texts
+    print("Extracting attention-based token importance...")
     try:
-        if hasattr(model, 'named_steps'):
-            tfidf = model.named_steps.get('tfidf')
-            if tfidf is not None:
-                feature_names = tfidf.get_feature_names_out().tolist()
-            else:
-                print("No TF-IDF vectorizer found in pipeline")
-                feature_names = []
-        else:
-            feature_names = []
+        attention_results = get_attention_based_importance(model, tokenizer, X_test, y_test, device, n_examples=10)
+        
+        attention_path = os.path.join(explainability_dir, 'attention_importance.json')
+        with open(attention_path, 'w', encoding='utf-8') as f:
+            json.dump(attention_results, f, ensure_ascii=False, indent=2)
+        print(f"Attention importance saved to {attention_path}")
     except Exception as e:
-        print(f"Error extracting feature names: {e}")
-        feature_names = []
-    
-    # Get top features per class
-    print("Extracting top features per class...")
-    feature_importance = get_top_features_per_class(model, feature_names, top_n=20)
-    
-    # Save feature importance
-    importance_path = os.path.join(explainability_dir, 'feature_importance.json')
-    with open(importance_path, 'w', encoding='utf-8') as f:
-        # Convert to serializable format
-        serializable_importance = {}
-        for class_label, data in feature_importance.items():
-            serializable_importance[class_label] = {
-                'top_features': [(word, float(score)) for word, score in data['top_features']],
-                'top_indices': data['top_indices']
-            }
-        json.dump(serializable_importance, f, ensure_ascii=False, indent=2)
-    print(f"Feature importance saved to {importance_path}")
-    
-    # Plot top features
-    if feature_importance:
-        plot_path = os.path.join(explainability_dir, 'top_features_per_class.png')
-        plot_top_features(feature_importance, plot_path)
-    
-    # Explain sample predictions
-    print("Generating prediction explanations...")
-    explanations = explain_predictions(model, X_test, y_test, feature_names, n_examples=10)
-    
-    explanations_path = os.path.join(explainability_dir, 'prediction_explanations.json')
-    with open(explanations_path, 'w', encoding='utf-8') as f:
-        json.dump(explanations, f, ensure_ascii=False, indent=2)
-    print(f"Prediction explanations saved to {explanations_path}")
+        print(f"Attention extraction failed: {e}")
+        attention_results = []
     
     # Analyze misclassifications
     print("Analyzing misclassifications...")
-    misclass_analysis = analyze_misclassifications(model, X_test, y_test, feature_importance)
+    misclass_analysis = analyze_misclassifications(y_test, y_pred, X_test)
     
     misclass_path = os.path.join(explainability_dir, 'misclassification_analysis.json')
     with open(misclass_path, 'w', encoding='utf-8') as f:
         json.dump(misclass_analysis, f, ensure_ascii=False, indent=2)
     print(f"Misclassification analysis saved to {misclass_path}")
+    
+    # Plot confusion pairs
+    if misclass_analysis['confusion_pairs']:
+        confusion_plot_path = os.path.join(explainability_dir, 'top_confusion_pairs.png')
+        plot_confusion_pairs(misclass_analysis['confusion_pairs'], confusion_plot_path)
     
     # Print summary
     print("\n=== Explainability Summary ===")
@@ -260,11 +285,12 @@ def main():
     print(f"Misclassified: {misclass_analysis['total_misclassified']}")
     print(f"Error rate: {misclass_analysis['error_rate']:.4f}")
     
-    if feature_importance:
-        print(f"\nAnalyzed {len(feature_importance)} classes")
-        print("Top confusion pairs:")
-        for pair in misclass_analysis['confusion_pairs'][:5]:
-            print(f"  {pair['true_label']} -> {pair['predicted_label']}: {pair['count']} times")
+    if attention_results:
+        print(f"\nAnalyzed attention for {len(attention_results)} example(s)")
+    
+    print("Top confusion pairs:")
+    for pair in misclass_analysis['confusion_pairs'][:5]:
+        print(f"  {pair['true_label']} -> {pair['predicted_label']}: {pair['count']} times")
 
 
 if __name__ == '__main__':
