@@ -59,10 +59,10 @@ docker run --rm --gpus all \
 | 1 | **Containerization** | Docker + GPU támogatás | `Dockerfile` |
 | 2 | **Data acquisition and analysis** | JSON parser, RAW EDA, advanced statistics | `01_data_acquisition_and_analysis.py` |
 | 3 | **Data cleansing and preparation** | Text cleaning, deduplication, stratified split | `02_data_cleansing_and_preparation.py` |
-| 4 | **Defining evaluation criteria** | Metrics, confusion matrix | `05_defining_evaluation_criteria.py` |
-| 5 | **Baseline model** | TF-IDF + LogisticRegression | `03_baseline_model.py` |
+| 4 | **Defining evaluation criteria** | Transformer (HuBERT) batch inference, metrics, confusion matrix | `05_defining_evaluation_criteria.py` |
+| 5 | **Baseline model (opcionális)** | TF-IDF + LogisticRegression | `03_baseline_model.py` |
 | 6 | **Incremental model development** | Transformer (HuBERT) fine-tuning | `04_incremental_model_development.py` |
-| 7 | **Advanced evaluation** | Robustness + Explainability | `06_advanced_evaluation_robustness.py` <br> `07_advanced_evaluation_explainability.py` |
+| 7 | **Advanced evaluation** | Transformer-based Robustness + Explainability | `06_advanced_evaluation_robustness.py` <br> `07_advanced_evaluation_explainability.py` |
 | 8 | **ML as a service** | REST API + Web GUI | `src/api/app.py` <br> `src/frontend/app.py` |
 
 ---
@@ -117,8 +117,9 @@ docker run --rm --gpus all \
 - `output/features/clean_word_count_hist.png`
 - `output/features/clean_avg_word_len_hist.png`
 
-### 3. **03_baseline_model.py**
-**Cél:** Baseline szövegklasszifikáció
+
+### 3. **03_baseline_model.py** *(opcionális)*
+**Cél:** Baseline szövegklasszifikáció (gyors, CPU-barát)
 
 **Modell:** TF-IDF (max_features=20000, ngram_range=(1,2)) + LogisticRegression (C=1.0)
 
@@ -128,13 +129,38 @@ docker run --rm --gpus all \
 - `output/reports/baseline_test_report.json`
 - `output/reports/baseline_test_confusion_matrix.png`
 
-### 4-7. **További pipeline lépések**
-- **04**: Transformer modell (HuBERT) fine-tuning
-- **05**: Evaluation criteria
-- **06**: Robustness testing
-- **07**: Explainability (SHAP, feature importance)
+### 4. **04_incremental_model_development.py**
+**Cél:** Transformer (HuBERT) fine-tuning, legjobb checkpoint mentése
 
-> A `src/run.sh` sorban futtatja az összes `src/*.py` fájlt. Dockerben ez az alapértelmezett belépési pont.
+**Kimenetek:**
+- `output/models/best_transformer_model/` — csak a legjobb checkpoint
+- `output/models/label_mapping.json` — label-idx mapping
+- `output/reports/transformer_training_history.png`
+- `output/reports/transformer_test_report.json`
+
+### 5. **05_defining_evaluation_criteria.py**
+**Cél:** Transformer batch inference, metrikák, confusion matrix
+
+**Kimenetek:**
+- `output/evaluation/transformer_test_report.json`
+- `output/evaluation/transformer_test_confusion_matrix.png`
+
+### 6. **06_advanced_evaluation_robustness.py**
+**Cél:** Transformer robustness tesztek (zaj, csonkítás, stb.)
+
+**Kimenetek:**
+- `output/robustness/robustness_results.json`
+- `output/robustness/robustness_comparison.png`
+
+### 7. **07_advanced_evaluation_explainability.py**
+**Cél:** Transformer attention-alapú magyarázhatóság, hibaanalízis, confusion pairs
+
+**Kimenetek:**
+- `output/explainability/attention_importance.json`
+- `output/explainability/misclassification_analysis.json`
+- `output/explainability/top_confusion_pairs.png`
+
+> A `src/run.sh` sorban futtatja az összes `src/*.py` fájlt. Dockerben ez az alapértelmezett belépési pont. A baseline modell futtatása opcionális, a fő pipeline a transformer modellt használja minden értékeléshez.
 
 ---
 
@@ -245,16 +271,26 @@ Fontos: ha több annotáció/eredmény van, jelenleg az első elem első válasz
 Minden CSV oszlopai: `text`, `label`, `word_count`, `avg_word_len`
 
 ### `output/models/`
-- `baseline_model.pkl` — TF-IDF + LogisticRegression
-- `transformer_model/` — HuBERT checkpoint + tokenizer
+- `baseline_model.pkl` — TF-IDF + LogisticRegression *(opcionális)*
+- `best_transformer_model/` — HuBERT checkpoint + tokenizer (csak a legjobb)
+- `label_mapping.json` — label-idx mapping
 
 ### `output/reports/`
-- `baseline_val_report.json` — validation metrikák
-- `baseline_test_report.json` — test metrikák (accuracy, balanced_accuracy, macro F1, per-class metrics)
-- `baseline_test_confusion_matrix.png` — confusion matrix heatmap
+- `transformer_training_history.png` — loss/accuracy görbék
+- `transformer_test_report.json` — test metrikák (accuracy, macro F1, per-class metrics)
 
-### `output/evaluation/`, `output/robustness/`, `output/explainability/`
-További értékelési kimenetek a 05-07 lépésekből.
+### `output/evaluation/`
+- `transformer_test_report.json` — részletes metrikák
+- `transformer_test_confusion_matrix.png` — confusion matrix
+
+### `output/robustness/`
+- `robustness_results.json` — robusztussági tesztek eredményei
+- `robustness_comparison.png` — összehasonlító ábra
+
+### `output/explainability/`
+- `attention_importance.json` — attention-alapú token fontosság
+- `misclassification_analysis.json` — hibaanalízis
+- `top_confusion_pairs.png` — leggyakoribb félreosztások
 
 ---
 
@@ -268,12 +304,14 @@ cd src
 python -m uvicorn api.app:app --host 0.0.0.0 --port 8000
 ```
 
+
 **Endpoint:** `POST /predict`
 
 **Példa request:**
 ```json
 {
-  "text": "A szerződés hatálya visszamenőleg nem érvényesíthető..."
+  "text": "A szerződés hatálya visszamenőleg nem érvényesíthető...",
+  "model_type": "transformer"
 }
 ```
 
@@ -282,19 +320,22 @@ python -m uvicorn api.app:app --host 0.0.0.0 --port 8000
 {
   "prediction": "3-Többé/kevésbé megértem",
   "confidence": 0.89,
-  "model": "baseline"
+  "model_used": "transformer"
 }
 ```
+
 
 ### Web GUI (Streamlit)
 
 ```bash
 # Frontend indítása (port: 8501)
+docker-compose up frontend
+# vagy
 cd src
 streamlit run frontend/app.py
 ```
 
-Böngészőben: `http://localhost:8501`
+Böngészőben: [http://localhost:8501](http://localhost:8501)
 
 ---
 
@@ -323,20 +364,22 @@ Böngészőben: `http://localhost:8501`
 
 **Megoldás:** A scriptek már UTF-8-sig encoding-ot használnak. Ha lokálisan olvasod be, használj `encoding='utf-8-sig'` paramétert.
 
+
 ### Lassú futás CPU-n
 
-A Transformer fine-tuning CPU-n 6+ óra is lehet. Baseline modell (~5 perc) működik CPU-n is.
+A Transformer fine-tuning CPU-n 6+ óra is lehet. A baseline modell (~5 perc) működik CPU-n is, de a fő pipeline a transformer modellt használja.
 
-**Opció:** Használd csak a baseline modellt vagy bérelj GPU-s cloud instance-t (Google Colab, AWS, Azure).
+**Opció:** Használd csak a baseline modellt (03) vagy bérelj GPU-s cloud instance-t (Google Colab, AWS, Azure).
 
 ---
 
 ## 📌 Megjegyzések
 
-- A pipeline **szekvenciálisan fut** a `run.sh` által meghatározott sorrendben
+- A pipeline **szekvenciálisan fut** a `run.sh` által meghatározott sorrendben (01-07, baseline opcionális)
 - Minden script **függetlenül futtatható** manuálisan is lokális környezetben (Docker nélkül)
 - Az **advanced statistics** (olvashatóság, diverzitás, TF-IDF, korreláció) kifejezetten **magyar jogi szövegekre** vannak optimalizálva
 - A **deduplikáció és címke-szűrés** csak EDA-célú; a `raw_dataset.csv` változatlan marad
+- **05-07 minden értékelést a transformer modellel végez** (batch inference, robustness, explainability)
 
 ---
 
