@@ -52,7 +52,7 @@ def predict_with_transformer(model, tokenizer, texts, device, batch_size=8, id2l
     
     model.eval()
     with torch.no_grad():
-        for batch in tqdm(dataloader, desc=\"Predicting\", disable=disable_tqdm):
+        for batch in tqdm(dataloader, desc="Predicting", disable=disable_tqdm):
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
             
@@ -199,6 +199,16 @@ def analyze_misclassifications(y_test, y_pred, X_test):
     }
 
 
+def summarize_attention(results):
+    """Compute average attention score per label."""
+    by_label = {}
+    for r in results:
+        tl = r['true_label']
+        score_mean = np.mean([s for _, s in r['top_attended_tokens']]) if r['top_attended_tokens'] else 0
+        by_label.setdefault(tl, []).append(score_mean)
+    return {k: float(np.mean(v)) for k, v in by_label.items()}
+
+
 def main():
     base_output = os.getenv('OUTPUT_DIR', '/app/output')
     processed_dir = os.path.join(base_output, 'processed')
@@ -261,6 +271,13 @@ def main():
         with open(attention_path, 'w', encoding='utf-8') as f:
             json.dump(attention_results, f, ensure_ascii=False, indent=2)
         print(f"Attention importance saved to {attention_path}")
+        
+        # Save attention summary
+        summary = summarize_attention(attention_results)
+        summary_path = os.path.join(explainability_dir, '07-explainability_attention_summary.json')
+        with open(summary_path, 'w', encoding='utf-8') as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+        print(f"Attention summary saved to {summary_path}")
     except Exception as e:
         print(f"Attention extraction failed: {e}")
         attention_results = []

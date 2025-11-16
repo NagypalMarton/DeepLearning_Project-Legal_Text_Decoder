@@ -7,7 +7,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report, confusion_matrix, mean_absolute_error, mean_squared_error
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -139,6 +139,28 @@ def main():
 	# Generate classification report
 	labels = sorted(list(set(y_test) | set(y_pred)))
 	report = classification_report(y_test, y_pred, labels=labels, output_dict=True, zero_division=0)
+	
+	# Add ordinal regression metrics (MAE, RMSE)
+	def labels_to_numeric(labels):
+		out = []
+		for l in labels:
+			m = str(l).strip()
+			if m and m[0].isdigit():
+				out.append(int(m[0]))
+			else:
+				out.append(0)
+		return np.array(out)
+	
+	y_true_num = labels_to_numeric(y_test)
+	y_pred_num = labels_to_numeric(y_pred)
+	mae = mean_absolute_error(y_true_num, y_pred_num)
+	rmse = np.sqrt(mean_squared_error(y_true_num, y_pred_num))
+	
+	report['mae'] = float(mae)
+	report['rmse'] = float(rmse)
+	weighted_f1 = report.get('weighted avg', {}).get('f1-score', 0)
+	
+	print(f"Test Accuracy: {report['accuracy']:.4f}, Weighted F1: {weighted_f1:.4f}, MAE: {mae:.4f}, RMSE: {rmse:.4f}")
 
 	report_path = os.path.join(eval_dir, '05-evaluation_test_report.json')
 	with open(report_path, 'w', encoding='utf-8') as f:

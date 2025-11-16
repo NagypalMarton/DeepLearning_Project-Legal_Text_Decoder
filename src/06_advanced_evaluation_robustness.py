@@ -7,7 +7,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import classification_report, accuracy_score, f1_score
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -108,9 +108,19 @@ def test_robustness(model, tokenizer, X_test, y_test, device, test_name, transfo
     labels = sorted(list(set(y_test) | set(y_pred)))
     report = classification_report(y_test, y_pred, labels=labels, output_dict=True, zero_division=0)
     
+    # Compute label indices for macro/weighted F1
+    label2id_local = {label: idx for idx, label in enumerate(labels)}
+    y_test_idx = [label2id_local[y] for y in y_test]
+    y_pred_idx = [label2id_local[y] for y in y_pred]
+    
+    macro_f1 = f1_score(y_test_idx, y_pred_idx, average='macro', zero_division=0)
+    weighted_f1 = f1_score(y_test_idx, y_pred_idx, average='weighted', zero_division=0)
+    
     return {
         'test_name': test_name,
         'accuracy': accuracy,
+        'macro_f1': float(macro_f1),
+        'weighted_f1': float(weighted_f1),
         'classification_report': report,
         'transformation': transformation_params
     }
@@ -242,7 +252,7 @@ def main():
             batch_size
         )
         results.append(result)
-        print(f"  Accuracy: {result['accuracy']:.4f}")
+        print(f"  Accuracy: {result['accuracy']:.4f}, Macro-F1: {result['macro_f1']:.4f}, Weighted-F1: {result['weighted_f1']:.4f}")
     
     # Save results
     results_path = os.path.join(robustness_dir, '06-robustness_results.json')
@@ -258,7 +268,7 @@ def main():
     # Print summary
     print("\n=== Robustness Test Summary ===")
     for result in results:
-        print(f"{result['test_name']:20s}: Accuracy = {result['accuracy']:.4f}")
+        print(f"{result['test_name']:20s}: Accuracy = {result['accuracy']:.4f}, Macro-F1 = {result['macro_f1']:.4f}, Weighted-F1 = {result['weighted_f1']:.4f}")
 
 
 if __name__ == '__main__':

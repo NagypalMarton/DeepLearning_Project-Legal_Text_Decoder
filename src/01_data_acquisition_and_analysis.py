@@ -245,7 +245,7 @@ def plot_metrics_by_label(df: pd.DataFrame, features_dir: str):
         data_to_plot = [df_plot[df_plot['label_raw'] == label][metric].values 
                         for label in labels_sorted]
         
-        ax.boxplot(data_to_plot, labels=labels_sorted, patch_artist=True)
+        ax.boxplot(data_to_plot, tick_labels=labels_sorted, patch_artist=True)
         ax.set_title(f'{metric.replace("_", " ").title()} by Label')
         ax.set_xlabel('Label')
         ax.set_ylabel(metric.replace('_', ' ').title())

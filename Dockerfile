@@ -8,7 +8,9 @@ RUN mkdir -p /app/data /app/output
 ENV DATA_DIR=/app/data \
     OUTPUT_DIR=/app/output \
     PYTHONUNBUFFERED=1 \
-    PYTHONIOENCODING=utf-8
+    PYTHONIOENCODING=utf-8 \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
 
 VOLUME ["/app/data", "/app/output"]
 

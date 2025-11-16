@@ -1,25 +1,25 @@
 ﻿# Legal Text Decoder
 
-NLP rendszer jogi szövegek (ÁSZF/ÁFF) érthetőségének automatikus értékelésére (1-5 skála).  
-**Docker + PyTorch + GPU támogatás | Cross-platform**
+NLP rendszer jogi szövegek (ÁSZF/ÁFF) érthetőségének automatikus értékelésére (1-5 skála).
+Docker + PyTorch + GPU támogatás | Cross-platform
 
 ## 📚 Tartalomjegyzék
 
-- [Gyors Indítás](#-gyors-indítás)
-- [Követelmény-Fájl Megfeleltetés](#-követelmény-fájl-megfeleltetés)
-- [Pipeline Lépések](#-pipeline-lépések)
-- [Statisztikai Elemzések](#-statisztikai-elemzések)
-- [Adatformátum](#-adatformátum)
-- [Környezeti Változók](#-környezeti-változók)
-- [Kimenetek](#-kimenetek)
-- [ML Service - API + GUI](#-ml-service---api--gui)
-- [Hibaelhárítás](#-hibaelhárítás)
+- Gyors Indítás
+- Követelmény-Fájl Megfeleltetés
+- Pipeline Lépések
+- Statisztikai Elemzések
+- Adatformátum
+- Környezeti Változók
+- Kimenetek
+- ML Service - API + GUI
+- Hibaelhárítás
 
 ---
 
 ## 🚀 Gyors Indítás
 
-### Automatikus platform detektálás:
+### Automatikus platform detektálás
 
 ```bash
 # Windows PowerShell
@@ -29,7 +29,7 @@ NLP rendszer jogi szövegek (ÁSZF/ÁFF) érthetőségének automatikus értéke
 bash docker-run.sh
 ```
 
-### Manuális Docker futtatás:
+### Manuális Docker futtatás
 
 ```bash
 # 1. Build
@@ -48,7 +48,7 @@ docker run --rm --gpus all \
   deeplearning_project-legal_text_decoder:1.0
 ```
 
-**Futási idő:** ~5-10 perc GPU-val | ~20-30 perc CPU-n
+Megjegyzés: A futás a teljes 01→07 pipeline-t végigviszi. A baseline (03) opcionális.
 
 ---
 
@@ -69,7 +69,11 @@ docker run --rm --gpus all \
 
 ## 📋 Pipeline Lépések
 
-### 1. **01_data_acquisition_and_analysis.py**
+Névkonvenció a kimenetekre: minden mérési/ábra/riport fájl név elején lépés-prefix szerepel.
+Minta: `{lépés}-{rövid_név}_{típus}_{split}.{ext}`
+Példák: `01-acquisition_raw_eda_statistics.txt`, `03-baseline_test_confusion_matrix.png`, `06-robustness_results.json`.
+
+### 1. 01_data_acquisition_and_analysis.py
 **Cél:** Nyers adatok betöltése és átfogó feltáró elemzés (EDA)
 
 **Funkciók:**
@@ -91,15 +95,14 @@ docker run --rm --gpus all \
 - `output/raw/raw_dataset.csv` — teljes nyers adathalmaz
 - `output/raw/raw_dataset_eda_filtered.csv` — deduplikált, szűrt snapshot
 - `output/raw/raw_dataset_eda_enhanced.csv` — összes metrikával bővített adathalmaz
-- `output/raw/removed_duplicates.csv` — eltávolított duplikátumok listája
-- `output/raw/removed_missing_labels.csv` — eltávolított hiányzó címkés sorok
-- `output/features/raw_eda_statistics.txt` — statisztikai összefoglaló
-- `output/features/raw_label_distribution.png` — label eloszlás
-- `output/features/*_by_label.png` — metrikák boxplot-jai címkénként (6 db)
-- `output/features/tfidf_top_words_by_label.csv` — jellemző szavak táblázat
-- `output/features/correlation_matrix.png` — korrelációs heatmap
+- `output/raw/removed_duplicates.csv`, `output/raw/removed_missing_labels.csv`
+- `output/features/01-acquisition_raw_eda_statistics.txt`
+- `output/features/01-acquisition_raw_label_distribution.png`
+- `output/features/01-acquisition_correlation_matrix.png`
+- `output/features/01-acquisition_tfidf_top_words_by_label.csv`
+- `output/features/01-acquisition_*_by_label.png` — 6 db boxplot (olvashatóság + diverzitás)
 
-### 2. **02_data_cleansing_and_preparation.py**
+### 2. 02_data_cleansing_and_preparation.py
 **Cél:** Szövegtisztítás és train/val/test split
 
 **Funkciók:**
@@ -111,56 +114,56 @@ docker run --rm --gpus all \
 - Opcionális: Sentence-BERT embeddings
 
 **Kimenetek:**
-- `output/processed/train.csv`
-- `output/processed/val.csv`
-- `output/processed/test.csv`
-- `output/features/clean_word_count_hist.png`
-- `output/features/clean_avg_word_len_hist.png`
+- `output/processed/train.csv`, `val.csv`, `test.csv`
+- `output/features/02-preparation_clean_word_count_hist.png`
+- `output/features/02-preparation_clean_avg_word_len_hist.png`
 
 
-### 3. **03_baseline_model.py** *(opcionális)*
+### 3. 03_baseline_model.py (opcionális)
 **Cél:** Baseline szövegklasszifikáció (gyors, CPU-barát)
 
 **Modell:** TF-IDF (max_features=20000, ngram_range=(1,2)) + LogisticRegression (C=1.0)
 
 **Kimenetek:**
 - `output/models/baseline_model.pkl`
-- `output/reports/baseline_val_report.json`
-- `output/reports/baseline_test_report.json`
-- `output/reports/baseline_test_confusion_matrix.png`
+- `output/reports/03-baseline_val_report.json`, `03-baseline_test_report.json`
+- `output/reports/03-baseline_val_confusion_matrix.png`, `03-baseline_test_confusion_matrix.png`
+- `output/reports/03-baseline_val_metrics_summary.png`, `03-baseline_test_metrics_summary.png`
+  (Accuracy, Weighted F1, MAE, RMSE vizuális összefoglaló)
 
-### 4. **04_incremental_model_development.py**
+### 4. 04_incremental_model_development.py
 **Cél:** Transformer (HuBERT) fine-tuning, legjobb checkpoint mentése
 
 **Kimenetek:**
 - `output/models/best_transformer_model/` — csak a legjobb checkpoint
 - `output/models/label_mapping.json` — label-idx mapping
-- `output/reports/transformer_training_history.png`
-- `output/reports/transformer_test_report.json`
+- `output/reports/04-transformer_training_history.png`
+- `output/reports/04-transformer_test_report.json` (Accuracy, Macro/Weighted F1, MAE, RMSE)
 
-### 5. **05_defining_evaluation_criteria.py**
+### 5. 05_defining_evaluation_criteria.py
 **Cél:** Transformer batch inference, metrikák, confusion matrix
 
 **Kimenetek:**
-- `output/evaluation/transformer_test_report.json`
-- `output/evaluation/transformer_test_confusion_matrix.png`
+- `output/evaluation/05-evaluation_test_report.json`
+- `output/evaluation/05-evaluation_test_confusion_matrix.png`
 
-### 6. **06_advanced_evaluation_robustness.py**
+### 6. 06_advanced_evaluation_robustness.py
 **Cél:** Transformer robustness tesztek (zaj, csonkítás, stb.)
 
 **Kimenetek:**
-- `output/robustness/robustness_results.json`
-- `output/robustness/robustness_comparison.png`
+- `output/robustness/06-robustness_results.json`
+- `output/robustness/06-robustness_comparison.png`
 
-### 7. **07_advanced_evaluation_explainability.py**
+### 7. 07_advanced_evaluation_explainability.py
 **Cél:** Transformer attention-alapú magyarázhatóság, hibaanalízis, confusion pairs
 
 **Kimenetek:**
-- `output/explainability/attention_importance.json`
-- `output/explainability/misclassification_analysis.json`
-- `output/explainability/top_confusion_pairs.png`
+- `output/explainability/07-explainability_attention_importance.json`
+- `output/explainability/07-explainability_attention_summary.json`
+- `output/explainability/07-explainability_misclassification_analysis.json`
+- `output/explainability/07-explainability_top_confusion_pairs.png`
 
-> A `src/run.sh` sorban futtatja az összes `src/*.py` fájlt. Dockerben ez az alapértelmezett belépési pont. A baseline modell futtatása opcionális, a fő pipeline a transformer modellt használja minden értékeléshez.
+> A `src/run.sh` sorban futtatja az összes `src/*.py` fájlt (01→07). Dockerben ez az alapértelmezett belépési pont. A baseline (03) opcionális; a fő pipeline a transformer modellt használja minden értékeléshez.
 
 ---
 
@@ -211,64 +214,46 @@ Fontos: ha több annotáció/eredmény van, jelenleg az első elem első válasz
 ## ⚙️ Környezeti Változók
 
 **Adatkezelés:**
-- `DATA_DIR` — Bemeneti adat mappa (alap: `/app/data` Dockerben)
-- `OUTPUT_DIR` — Kimeneti mappa (alap: `/app/output`)
+- `DATA_DIR` — bemeneti adat mappa (alap: `/app/data` Dockerben)
+- `OUTPUT_DIR` — kimeneti mappa (alap: `/app/output`)
 
-**Baseline modell (TF-IDF + LogisticRegression):**
-- `TFIDF_MAX_FEATURES` — TF-IDF max jellemzők száma (alap: `20000`)
-- `TFIDF_NGRAM_RANGE` — N-gram tartomány (alap: `1,2`)
-- `LOGREG_C` — Regularizációs paraméter (alap: `1.0`)
+**Baseline (TF-IDF + LogisticRegression):**
+- `TFIDF_MAX_FEATURES` (alap: `20000`), `TFIDF_NGRAM_RANGE` (alap: `1,2`), `LOGREG_C` (alap: `1.0`)
 
-**Embeddings (opcionális):**
-- `ENABLE_EMBEDDINGS` — Sentence-BERT embeddings számítása (alap: `false`)
-- `EMBEDDING_MODEL` — Használt modell neve (alap: `paraphrase-multilingual-MiniLM-L12-v2`)
-
-**Transformer modell:**
-- `TRANSFORMER_MODEL` — Használt modell (alap: `SZTAKI-HLT/hubert-base-cc`)
-- `TRANSFORMER_EPOCHS` — Training epoch-ok száma (alap: `3`)
-- `TRANSFORMER_BATCH_SIZE` — Batch méret (alap: `8`)
-- `TRANSFORMER_LR` — Learning rate (alap: `2e-5`)
+**Transformer (HuBERT) fine-tuning — jelenlegi alapértelmezések:**
+- `TRANSFORMER_MODEL` — modell neve (alap: `SZTAKI-HLT/hubert-base-cc`)
+- `EPOCHS` — max epoch (alap: `10`, early stopping miatt nem feltétlen fut végig)
+- `BATCH_SIZE` — batch méret (alap: `8`)
+- `LEARNING_RATE` — tanulási ráta (alap: `2e-5`)
+- `WEIGHT_DECAY` — L2 regularizáció (alap: `0.01`)
+- `MAX_LENGTH` — token hossz (alap: `320`)
+- `LABEL_SMOOTHING` — label smoothing (alap: `0.15`)
+- `EARLY_STOPPING` — engedélyezés (alap: `1`)
+- `EARLY_STOPPING_PATIENCE` — türelem (alap: `2`), monitor: `val_macro_f1`
+- `SAVE_BEST_METRIC` — `val_macro_f1` vagy `val_loss` (alap: `val_macro_f1`)
+- `USE_CLASS_WEIGHTS` — osztálysúlyozás (alap: `1`)
+- `USE_FOCAL_LOSS` — Focal Loss kapcsoló (alap: `0`), `FOCAL_GAMMA` (alap: `2.0`)
+- `GRAD_ACC_STEPS` — grad. akkumuláció (alap: `2`)
+- `MIXED_PRECISION` — automatikus FP16 (CUDA) (alap: `1`)
 
 ---
 
 ## 📦 Kimenetek
 
+Az összes mérési és vizuális kimenet lépés-prefixet kap az egyszerű visszakövethetőségért.
+
 ### `output/raw/`
-- `raw_dataset.csv` — teljes nyers adathalmaz (minden sor, változatlan)
-- `raw_dataset_eda_filtered.csv` — deduplikált és címke-szűrt snapshot (pipeline input)
-- `raw_dataset_eda_enhanced.csv` — összes statisztikai metrikával bővített adathalmaz
-- `removed_duplicates.csv` — eltávolított duplikátumok listája (227 sor)
-- `removed_missing_labels.csv` — üres choices vagy text sorok listája (136 sor)
+- `raw_dataset.csv`, `raw_dataset_eda_filtered.csv`, `raw_dataset_eda_enhanced.csv`
+- `removed_duplicates.csv`, `removed_missing_labels.csv`
 
 ### `output/features/`
-**RAW EDA:**
-- `raw_eda_statistics.txt` — duplikációs és szűrési statisztikák szöveges összefoglalója
-- `raw_label_distribution.png` — besorolások eloszlása (bar chart)
-- `raw_word_count_hist.png` — nyers szöveghosszok eloszlása
-- `raw_avg_word_len_hist.png` — nyers átlagos szóhosszok eloszlása
-
-**Advanced Statistics (címkénkénti boxplotok):**
-- `flesch_score_by_label.png` — Flesch Reading Ease
-- `fog_index_by_label.png` — Gunning Fog Index
-- `smog_index_by_label.png` — SMOG Index
-- `ttr_by_label.png` — Type-Token Ratio
-- `mattr_by_label.png` — Moving Average TTR
-- `hapax_ratio_by_label.png` — Hapax legomena arány
-
-**Analitikai kimenet:**
-- `tfidf_top_words_by_label.csv` — legjellemzőbb szavak minden címkére
-- `correlation_matrix.png` — feature korrelációs heatmap
-
-**CLEAN EDA:**
-- `clean_word_count_hist.png` — tisztított szöveg szógyakoriság
-- `clean_avg_word_len_hist.png` — tisztított szöveg szóhosszúság
+- `01-acquisition_raw_eda_statistics.txt`, `01-acquisition_raw_label_distribution.png`
+- `01-acquisition_correlation_matrix.png`, `01-acquisition_tfidf_top_words_by_label.csv`
+- `01-acquisition_*_by_label.png` (6 db)
+- `02-preparation_clean_word_count_hist.png`, `02-preparation_clean_avg_word_len_hist.png`
 
 ### `output/processed/`
-- `train.csv` (2022 sor, ~60%)
-- `val.csv` (675 sor, ~20%)
-- `test.csv` (675 sor, ~20%)
-
-Minden CSV oszlopai: `text`, `label`, `word_count`, `avg_word_len`
+- `train.csv` (~60%), `val.csv` (~20%), `test.csv` (~20%) — oszlopok: `text`, `label`, `word_count`, `avg_word_len`
 
 ### `output/models/`
 - `baseline_model.pkl` — TF-IDF + LogisticRegression *(opcionális)*
@@ -276,21 +261,25 @@ Minden CSV oszlopai: `text`, `label`, `word_count`, `avg_word_len`
 - `label_mapping.json` — label-idx mapping
 
 ### `output/reports/`
-- `transformer_training_history.png` — loss/accuracy görbék
-- `transformer_test_report.json` — test metrikák (accuracy, macro F1, per-class metrics)
+- `03-baseline_val_report.json`, `03-baseline_test_report.json`
+- `03-baseline_val_confusion_matrix.png`, `03-baseline_test_confusion_matrix.png`
+- `03-baseline_val_metrics_summary.png`, `03-baseline_test_metrics_summary.png`
+- `04-transformer_training_history.png` — loss/accuracy/macro-F1 görbék
+- `04-transformer_test_report.json` — test metrikák (Accuracy, Macro/Weighted F1, MAE, RMSE, per-class)
 
 ### `output/evaluation/`
-- `transformer_test_report.json` — részletes metrikák
-- `transformer_test_confusion_matrix.png` — confusion matrix
+- `05-evaluation_test_report.json` — részletes metrikák (Accuracy, Macro/Weighted F1, MAE, RMSE)
+- `05-evaluation_test_confusion_matrix.png` — confusion matrix
 
 ### `output/robustness/`
-- `robustness_results.json` — robusztussági tesztek eredményei
-- `robustness_comparison.png` — összehasonlító ábra
+- `06-robustness_results.json` — robusztussági tesztek eredményei (Macro/Weighted F1)
+- `06-robustness_comparison.png` — összehasonlító ábra
 
 ### `output/explainability/`
-- `attention_importance.json` — attention-alapú token fontosság
-- `misclassification_analysis.json` — hibaanalízis
-- `top_confusion_pairs.png` — leggyakoribb félreosztások
+- `07-explainability_attention_importance.json` — attention-alapú token fontosság
+- `07-explainability_attention_summary.json` — osztályonkénti összegzések
+- `07-explainability_misclassification_analysis.json` — hibaanalízis
+- `07-explainability_top_confusion_pairs.png` — leggyakoribb félreosztások
 
 ---
 
@@ -375,11 +364,11 @@ A Transformer fine-tuning CPU-n 6+ óra is lehet. A baseline modell (~5 perc) m�
 
 ## 📌 Megjegyzések
 
-- A pipeline **szekvenciálisan fut** a `run.sh` által meghatározott sorrendben (01-07, baseline opcionális)
-- Minden script **függetlenül futtatható** manuálisan is lokális környezetben (Docker nélkül)
-- Az **advanced statistics** (olvashatóság, diverzitás, TF-IDF, korreláció) kifejezetten **magyar jogi szövegekre** vannak optimalizálva
-- A **deduplikáció és címke-szűrés** csak EDA-célú; a `raw_dataset.csv` változatlan marad
-- **05-07 minden értékelést a transformer modellel végez** (batch inference, robustness, explainability)
+- A pipeline szekvenciálisan fut a `run.sh` szerint (01→07), baseline opcionális.
+- Early stopping a `val_macro_f1`-t figyeli; a legjobb checkpoint automatikusan mentésre kerül.
+- Az advanced statisztikák (olvashatóság, diverzitás, TF-IDF, korreláció) magyar jogi szövegekre optimalizáltak.
+- A deduplikáció és címke-szűrés csak EDA-célú; a `raw_dataset.csv` változatlan marad.
+- 05–07 minden értékelést a transformer modellel végez (batch inference, robustness, explainability).
 
 ---
 

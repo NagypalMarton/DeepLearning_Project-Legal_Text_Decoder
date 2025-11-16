@@ -13,7 +13,7 @@ from torch import amp
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
 from torch.optim import AdamW
-from sklearn.metrics import classification_report, accuracy_score, f1_score
+from sklearn.metrics import classification_report, accuracy_score, f1_score, mean_absolute_error, mean_squared_error
 from sklearn.utils.class_weight import compute_class_weight
 import matplotlib
 matplotlib.use("Agg")
@@ -267,13 +267,13 @@ def main():
     # Hyperparameters
     model_name = os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc')  # Hungarian BERT
     batch_size = int(os.getenv('BATCH_SIZE', '8'))  # increased default; still safe for 4GB VRAM
-    epochs = int(os.getenv('EPOCHS', '8'))  # increased default epochs for better convergence
+    epochs = int(os.getenv('EPOCHS', '10'))  # increased default epochs for better convergence
     learning_rate = float(os.getenv('LEARNING_RATE', '2e-5'))
     weight_decay = float(os.getenv('WEIGHT_DECAY', '0.01'))  # L2 regularization
-    max_length = int(os.getenv('MAX_LENGTH', '384'))  # longer sequence length to retain more legal text context
-    label_smoothing = float(os.getenv('LABEL_SMOOTHING', '0.0'))  # disabled by default (set 0.05-0.1 if needed)
+    max_length = int(os.getenv('MAX_LENGTH', '320'))  # optimized for 4GB VRAM
+    label_smoothing = float(os.getenv('LABEL_SMOOTHING', '0.15'))  # ordinal classification smoothing
     early_stopping_enabled = os.getenv('EARLY_STOPPING', '1') == '1'
-    early_stopping_patience = int(os.getenv('EARLY_STOPPING_PATIENCE', '5'))  # increased patience for overfit
+    early_stopping_patience = int(os.getenv('EARLY_STOPPING_PATIENCE', '2'))  # optimized convergence
     save_best_metric = os.getenv('SAVE_BEST_METRIC', 'val_macro_f1')  # track macro-F1 by default for class balance
     use_class_weights = os.getenv('USE_CLASS_WEIGHTS', '1') == '1'  # enable class weighting by default
     use_focal_loss = os.getenv('USE_FOCAL_LOSS', '0') == '1'  # Focal Loss toggle
@@ -461,6 +461,28 @@ def main():
             output_dict=True,
             zero_division=0
         )
+        
+        # Add ordinal regression metrics (MAE, RMSE)
+        def labels_to_numeric(labels):
+            out = []
+            for l in labels:
+                m = str(l).strip()
+                if m and m[0].isdigit():
+                    out.append(int(m[0]))
+                else:
+                    out.append(0)
+            return np.array(out)
+        
+        y_true_num = labels_to_numeric(true_labels_str)
+        y_pred_num = labels_to_numeric(pred_labels_str)
+        mae = mean_absolute_error(y_true_num, y_pred_num)
+        rmse = np.sqrt(mean_squared_error(y_true_num, y_pred_num))
+        
+        report['mae'] = float(mae)
+        report['rmse'] = float(rmse)
+        
+        print(f"Test MAE: {mae:.4f}, Test RMSE: {rmse:.4f}")
+        
         report_path = os.path.join(reports_dir, '04-transformer_test_report.json')
         with open(report_path, 'w', encoding='utf-8') as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
