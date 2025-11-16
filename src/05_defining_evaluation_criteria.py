@@ -140,12 +140,12 @@ def main():
 	labels = sorted(list(set(y_test) | set(y_pred)))
 	report = classification_report(y_test, y_pred, labels=labels, output_dict=True, zero_division=0)
 
-	report_path = os.path.join(eval_dir, 'transformer_test_report.json')
+	report_path = os.path.join(eval_dir, '05-evaluation_test_report.json')
 	with open(report_path, 'w', encoding='utf-8') as f:
 		json.dump(report, f, ensure_ascii=False, indent=2)
 	print(f"Saved test report to {report_path}")
 
-	cm_path = os.path.join(eval_dir, 'transformer_test_confusion_matrix.png')
+	cm_path = os.path.join(eval_dir, '05-evaluation_test_confusion_matrix.png')
 	plot_confusion_matrix(y_test, y_pred, labels, cm_path)
 	print(f"Saved test confusion matrix to {cm_path}")
 

@@ -8,7 +8,7 @@ import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report, confusion_matrix, mean_absolute_error, mean_squared_error
 import matplotlib
 matplotlib.use("Agg")  # headless environments (Docker)
 import matplotlib.pyplot as plt
@@ -47,7 +47,7 @@ def ensure_dirs(base_output: str):
 	return models_dir, reports_dir
 
 
-def plot_confusion_matrix(y_true, y_pred, labels, save_path):
+def plot_confusion_matrix(y_true, y_pred, labels, save_path, split_name='Test'):
 	cm = confusion_matrix(y_true, y_pred, labels=labels)
 	fig, ax = plt.subplots(figsize=(6, 6))
 	im = ax.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
@@ -56,7 +56,7 @@ def plot_confusion_matrix(y_true, y_pred, labels, save_path):
 		   yticks=np.arange(cm.shape[0]),
 		   xticklabels=labels, yticklabels=labels,
 		   ylabel='True label', xlabel='Predicted label',
-		   title='Confusion Matrix (Test)')
+		   title=f'Confusion Matrix ({split_name})')
 	plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
 			 rotation_mode="anchor")
 
@@ -71,6 +71,56 @@ def plot_confusion_matrix(y_true, y_pred, labels, save_path):
 	fig.savefig(save_path, bbox_inches='tight')
 	plt.close(fig)
 
+
+def label_to_numeric(labels):
+	"""Convert string labels to numeric values for regression metrics.
+	
+	Assumes labels are in format like '1-...', '2-...', etc. or plain numbers.
+	"""
+	numeric = []
+	for label in labels:
+		label_str = str(label).strip()
+		# Try to extract leading digit
+		if label_str[0].isdigit():
+			numeric.append(int(label_str[0]))
+		else:
+			# Fallback: try to parse the whole string as int
+			try:
+				numeric.append(int(label_str))
+			except ValueError:
+				# If parsing fails, map to 0 (unknown)
+				numeric.append(0)
+	return np.array(numeric)
+
+
+def plot_metrics_summary(report, save_path, split_name='Test'):
+	"""Plot summary of key metrics in a bar chart."""
+	metrics = {
+		'Accuracy': report.get('accuracy', 0),
+		'Weighted F1': report.get('weighted avg', {}).get('f1-score', 0),
+		'MAE': report.get('mae', 0),
+		'RMSE': report.get('rmse', 0)
+	}
+	
+	fig, ax = plt.subplots(figsize=(10, 6))
+	colors = ['#2ecc71', '#3498db', '#e74c3c', '#f39c12']
+	bars = ax.bar(metrics.keys(), metrics.values(), color=colors, alpha=0.8)
+	
+	ax.set_ylabel('Score / Error', fontsize=12)
+	ax.set_title(f'Baseline Model Metrics Summary ({split_name})', fontsize=14, fontweight='bold')
+	ax.set_ylim([0, max(max(metrics.values()) * 1.2, 1.0)])
+	ax.grid(axis='y', alpha=0.3, linestyle='--')
+	
+	# Add value labels on bars
+	for bar, (name, value) in zip(bars, metrics.items()):
+		height = bar.get_height()
+		ax.text(bar.get_x() + bar.get_width()/2., height,
+				f'{value:.4f}',
+				ha='center', va='bottom', fontsize=11, fontweight='bold')
+	
+	fig.tight_layout()
+	fig.savefig(save_path, dpi=150, bbox_inches='tight')
+	plt.close(fig)
 
 def main():
 	# Base output directory; processed data lives under processed/
@@ -129,22 +179,39 @@ def main():
 		y_pred = clf.predict(X)
 		labels = sorted(list(set(y) | set(y_pred)))
 		report = classification_report(y, y_pred, labels=labels, output_dict=True, zero_division=0)
+		
+		# Compute regression metrics (MAE, RMSE) for ordinal labels
+		y_true_numeric = label_to_numeric(y)
+		y_pred_numeric = label_to_numeric(y_pred)
+		mae = mean_absolute_error(y_true_numeric, y_pred_numeric)
+		rmse = np.sqrt(mean_squared_error(y_true_numeric, y_pred_numeric))
+		
+		# Add regression metrics to report
+		report['mae'] = float(mae)
+		report['rmse'] = float(rmse)
+		
 		# Save JSON report
-		report_path = os.path.join(reports_dir, f'baseline_{split_name}_report.json')
+		report_path = os.path.join(reports_dir, f'03-baseline_{split_name}_report.json')
 		with open(report_path, 'w', encoding='utf-8') as f:
 			json.dump(report, f, ensure_ascii=False, indent=2)
 		print(f"Saved {split_name} report to {report_path}")
-		# Confusion matrix only for test
-		if split_name == 'test':
-			cm_path = os.path.join(reports_dir, 'baseline_test_confusion_matrix.png')
-			plot_confusion_matrix(y, y_pred, labels, cm_path)
-			print(f"Saved test confusion matrix to {cm_path}")
+		print(f"  Accuracy: {report['accuracy']:.4f}, Weighted F1: {report['weighted avg']['f1-score']:.4f}, MAE: {mae:.4f}, RMSE: {rmse:.4f}")
+		
+		# Confusion matrix for both val and test
+		cm_path = os.path.join(reports_dir, f'03-baseline_{split_name}_confusion_matrix.png')
+		plot_confusion_matrix(y, y_pred, labels, cm_path, split_name=split_name.capitalize())
+		print(f"Saved {split_name} confusion matrix to {cm_path}")
+		
+		# Metrics summary visualization
+		metrics_plot_path = os.path.join(reports_dir, f'03-baseline_{split_name}_metrics_summary.png')
+		plot_metrics_summary(report, metrics_plot_path, split_name=split_name.capitalize())
+		print(f"Saved {split_name} metrics summary to {metrics_plot_path}")
+		
 		return report
 
 	evaluate_and_save('val', X_val, y_val)
 	evaluate_and_save('test', X_test, y_test)
 
-
 if __name__ == "__main__":
 	main()
-
+	

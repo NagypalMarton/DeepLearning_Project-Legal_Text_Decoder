@@ -257,7 +257,7 @@ def main():
     try:
         attention_results = get_attention_based_importance(model, tokenizer, X_test, y_test, device, n_examples=10)
         
-        attention_path = os.path.join(explainability_dir, 'attention_importance.json')
+        attention_path = os.path.join(explainability_dir, '07-explainability_attention_importance.json')
         with open(attention_path, 'w', encoding='utf-8') as f:
             json.dump(attention_results, f, ensure_ascii=False, indent=2)
         print(f"Attention importance saved to {attention_path}")
@@ -269,14 +269,14 @@ def main():
     print("Analyzing misclassifications...")
     misclass_analysis = analyze_misclassifications(y_test, y_pred, X_test)
     
-    misclass_path = os.path.join(explainability_dir, 'misclassification_analysis.json')
+    misclass_path = os.path.join(explainability_dir, '07-explainability_misclassification_analysis.json')
     with open(misclass_path, 'w', encoding='utf-8') as f:
         json.dump(misclass_analysis, f, ensure_ascii=False, indent=2)
     print(f"Misclassification analysis saved to {misclass_path}")
     
     # Plot confusion pairs
     if misclass_analysis['confusion_pairs']:
-        confusion_plot_path = os.path.join(explainability_dir, 'top_confusion_pairs.png')
+        confusion_plot_path = os.path.join(explainability_dir, '07-explainability_top_confusion_pairs.png')
         plot_confusion_pairs(misclass_analysis['confusion_pairs'], confusion_plot_path)
     
     # Print summary

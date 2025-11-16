@@ -75,6 +75,8 @@ def load_json_items(input_path: str) -> List[Union[dict, list]]:
         raise FileNotFoundError(f"Input path does not exist: {input_path}")
 
 
+STEP_PREFIX = '01-acquisition'
+
 def save_histogram(series: pd.Series, title: str, path: str, bins: int = 50):
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.hist(series.values, bins=bins)
@@ -250,7 +252,7 @@ def plot_metrics_by_label(df: pd.DataFrame, features_dir: str):
         ax.grid(axis='y', alpha=0.3)
         fig.tight_layout()
         
-        out_path = os.path.join(features_dir, f'{metric}_by_label.png')
+        out_path = os.path.join(features_dir, f'{STEP_PREFIX}_{metric}_by_label.png')
         fig.savefig(out_path)
         plt.close(fig)
         print(f"Saved {metric} by label plot -> {out_path}")
@@ -293,7 +295,7 @@ def compute_tfidf_top_words(df: pd.DataFrame, features_dir: str, top_n: int = 20
     
     if results:
         df_tfidf = pd.DataFrame(results)
-        out_csv = os.path.join(features_dir, 'tfidf_top_words_by_label.csv')
+        out_csv = os.path.join(features_dir, f'{STEP_PREFIX}_tfidf_top_words_by_label.csv')
         df_tfidf.to_csv(out_csv, index=False, encoding='utf-8-sig')
         print(f"Saved TF-IDF results -> {out_csv}")
 
@@ -335,7 +337,7 @@ def plot_correlation_matrix(df: pd.DataFrame, features_dir: str):
     ax.set_title('Feature Correlation Matrix')
     fig.tight_layout()
     
-    out_path = os.path.join(features_dir, 'correlation_matrix.png')
+    out_path = os.path.join(features_dir, f'{STEP_PREFIX}_correlation_matrix.png')
     fig.savefig(out_path, dpi=100)
     plt.close(fig)
     print(f"Saved correlation matrix -> {out_path}")
@@ -384,7 +386,7 @@ def plot_top_confusion_pairs(df: pd.DataFrame, features_dir: str):
     ax.set_title('Top Confusion Pairs (szomszédos címkék)')
     fig.tight_layout()
     
-    out_path = os.path.join(features_dir, 'top_confusion_pairs.png')
+    out_path = os.path.join(features_dir, f'{STEP_PREFIX}_top_confusion_pairs.png')
     fig.savefig(out_path)
     plt.close(fig)
     print(f"Saved top confusion pairs -> {out_path}")
@@ -397,8 +399,8 @@ def raw_eda(df: pd.DataFrame, features_dir: str):
     avg_word_len = texts.apply(lambda t: np.mean([len(w) for w in t.split()]) if t.split() else 0.0)
 
     Path(features_dir).mkdir(parents=True, exist_ok=True)
-    save_histogram(word_counts, 'RAW Word Count Distribution', os.path.join(features_dir, 'raw_word_count_hist.png'))
-    save_histogram(avg_word_len, 'RAW Average Word Length Distribution', os.path.join(features_dir, 'raw_avg_word_len_hist.png'))
+    save_histogram(word_counts, 'RAW Word Count Distribution', os.path.join(features_dir, f'{STEP_PREFIX}_raw_word_count_hist.png'))
+    save_histogram(avg_word_len, 'RAW Average Word Length Distribution', os.path.join(features_dir, f'{STEP_PREFIX}_raw_avg_word_len_hist.png'))
 
 
 def extract_label_from_annotations(annotations_raw: str):
@@ -465,7 +467,7 @@ def eda_label_analysis(df: pd.DataFrame, raw_dir: str, features_dir: str):
     print(f"  - Üres 'choices' VAGY üres 'text' sorok eltávolítva: {missing_labels_removed}")
 
     # Save statistics to file
-    stats_file = os.path.join(features_dir, 'raw_eda_statistics.txt')
+    stats_file = os.path.join(features_dir, f'{STEP_PREFIX}_raw_eda_statistics.txt')
     with open(stats_file, 'w', encoding='utf-8') as f:
         f.write("RAW EDA Statisztikák\n")
         f.write("=" * 50 + "\n\n")
@@ -478,12 +480,12 @@ def eda_label_analysis(df: pd.DataFrame, raw_dir: str, features_dir: str):
     
     # Save removed rows details
     if duplicates_removed > 0:
-        dup_file = os.path.join(raw_dir, 'removed_duplicates.csv')
+        dup_file = os.path.join(raw_dir, f'{STEP_PREFIX}_removed_duplicates.csv')
         duplicate_rows[['text_raw', 'source_file', 'label_raw']].to_csv(dup_file, index=False, encoding='utf-8-sig')
         print(f"Saved {duplicates_removed} duplicate rows -> {dup_file}")
     
     if missing_labels_removed > 0:
-        missing_file = os.path.join(raw_dir, 'removed_missing_labels.csv')
+        missing_file = os.path.join(raw_dir, f'{STEP_PREFIX}_removed_missing_labels.csv')
         missing_label_rows[['text_raw', 'source_file', 'annotations_raw']].to_csv(missing_file, index=False, encoding='utf-8-sig')
         print(f"Saved {missing_labels_removed} rows with empty choices or text -> {missing_file}")
 
@@ -499,7 +501,7 @@ def eda_label_analysis(df: pd.DataFrame, raw_dir: str, features_dir: str):
             ax.set_xlabel('Besorolás (label)')
             ax.set_ylabel('Darab')
             fig.tight_layout()
-            out_fig = os.path.join(features_dir, 'raw_label_distribution.png')
+            out_fig = os.path.join(features_dir, f'{STEP_PREFIX}_raw_label_distribution.png')
             fig.savefig(out_fig)
             plt.close(fig)
             print(f"Saved label distribution plot -> {out_fig}")
@@ -508,7 +510,7 @@ def eda_label_analysis(df: pd.DataFrame, raw_dir: str, features_dir: str):
 
     # Save an EDA-filtered snapshot without altering the canonical raw file
     try:
-        out_csv = os.path.join(raw_dir, 'raw_dataset_eda_filtered.csv')
+        out_csv = os.path.join(raw_dir, 'raw_dataset_eda_filtered.csv')  # keep original name for downstream compatibility
         # Remove temporary row_id column before saving
         df_to_save = df[['text_raw', 'annotations_raw', 'source_file', 'label_raw']].copy()
         df_to_save.to_csv(out_csv, index=False, encoding='utf-8-sig')
@@ -565,7 +567,7 @@ def eda_label_analysis(df: pd.DataFrame, raw_dir: str, features_dir: str):
     
     # Save enhanced EDA dataset with all metrics
     try:
-        out_csv_enhanced = os.path.join(raw_dir, 'raw_dataset_eda_enhanced.csv')
+        out_csv_enhanced = os.path.join(raw_dir, 'raw_dataset_eda_enhanced.csv')  # keep original name for downstream compatibility
         df_enhanced = df.drop(columns=['row_id'], errors='ignore')
         df_enhanced.to_csv(out_csv_enhanced, index=False, encoding='utf-8-sig')
         print(f"✓ Saved enhanced EDA dataset with all metrics -> {out_csv_enhanced}")
@@ -608,7 +610,7 @@ def process_raw_data(input_path: str, raw_dir: str, features_dir: str):
     df = pd.DataFrame(records)
     print(f"RAW rows aggregated: {len(df)}")
 
-    raw_csv = os.path.join(raw_dir, 'raw_dataset.csv')
+    raw_csv = os.path.join(raw_dir, 'raw_dataset.csv')  # keep canonical name
     df.to_csv(raw_csv, index=False, encoding='utf-8-sig')
     print(f"Saved RAW dataset -> {raw_csv}")
 

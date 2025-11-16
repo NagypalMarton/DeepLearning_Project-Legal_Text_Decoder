@@ -245,13 +245,13 @@ def main():
         print(f"  Accuracy: {result['accuracy']:.4f}")
     
     # Save results
-    results_path = os.path.join(robustness_dir, 'robustness_results.json')
+    results_path = os.path.join(robustness_dir, '06-robustness_results.json')
     with open(results_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
     print(f"\nRobustness results saved to {results_path}")
     
     # Plot results
-    plot_path = os.path.join(robustness_dir, 'robustness_comparison.png')
+    plot_path = os.path.join(robustness_dir, '06-robustness_comparison.png')
     plot_robustness_results(results, plot_path)
     print(f"Robustness plot saved to {plot_path}")
     

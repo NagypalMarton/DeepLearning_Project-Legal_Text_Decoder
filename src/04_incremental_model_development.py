@@ -428,7 +428,7 @@ def main():
         print(f"\nWarning: Best checkpoint not found, using current model state")
     
     # Plot training history
-    history_plot_path = os.path.join(reports_dir, 'transformer_training_history.png')
+    history_plot_path = os.path.join(reports_dir, '04-transformer_training_history.png')
     plot_training_history(history, history_plot_path)
     print(f"Training history plot saved to {history_plot_path}")
     
@@ -461,7 +461,7 @@ def main():
             output_dict=True,
             zero_division=0
         )
-        report_path = os.path.join(reports_dir, 'transformer_test_report.json')
+        report_path = os.path.join(reports_dir, '04-transformer_test_report.json')
         with open(report_path, 'w', encoding='utf-8') as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
         print(f"Test report saved to {report_path}")

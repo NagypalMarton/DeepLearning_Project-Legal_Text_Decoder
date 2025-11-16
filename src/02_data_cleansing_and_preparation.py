@@ -11,6 +11,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+STEP_PREFIX = '02-preparation'
+
 try:
 	from sentence_transformers import SentenceTransformer  # type: ignore
 except Exception:
@@ -80,10 +82,10 @@ def maybe_compute_embeddings(df_list, features_dir: str, model_name: str, batch_
 		texts = df['text'].astype(str).tolist()
 		print(f"Encoding {name} split with {len(texts)} texts...")
 		emb = model.encode(texts, batch_size=batch_size, show_progress_bar=True)
-		out_path = os.path.join(features_dir, f'embeddings_{name}.npy')
+		out_path = os.path.join(features_dir, f'{STEP_PREFIX}_embeddings_{name}.npy')
 		np.save(out_path, emb)
 		meta[f'{name}_embeddings'] = out_path
-	meta_path = os.path.join(features_dir, 'embeddings_meta.json')
+	meta_path = os.path.join(features_dir, f'{STEP_PREFIX}_embeddings_meta.json')
 	with open(meta_path, 'w', encoding='utf-8') as f:
 		json.dump(meta, f, ensure_ascii=False, indent=2)
 	print(f"Saved embeddings metadata to {meta_path}")
@@ -141,10 +143,10 @@ def main():
 			temp = add_text_stats(train_df)
 			if 'word_count' in temp.columns:
 				save_histogram(temp['word_count'], 'CLEAN Word Count Distribution (Train)',
-							   os.path.join(features_dir, 'clean_word_count_hist.png'))
+							   os.path.join(features_dir, f'{STEP_PREFIX}_clean_word_count_hist.png'))
 			if 'avg_word_len' in temp.columns:
 				save_histogram(temp['avg_word_len'], 'CLEAN Average Word Length Distribution (Train)',
-							   os.path.join(features_dir, 'clean_avg_word_len_hist.png'))
+							   os.path.join(features_dir, f'{STEP_PREFIX}_clean_avg_word_len_hist.png'))
 
 		# Optional embeddings
 		enable_embeddings = os.getenv('ENABLE_EMBEDDINGS', 'false').lower() in {'1', 'true', 'yes'}
