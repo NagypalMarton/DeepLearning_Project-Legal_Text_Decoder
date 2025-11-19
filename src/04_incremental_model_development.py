@@ -21,6 +21,8 @@ import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
 import sys
 import torch.nn.functional as F
+import textstat
+import re
 
 
 def set_seed(seed=42):
@@ -36,11 +38,12 @@ def set_seed(seed=42):
 class LegalTextDataset(Dataset):
     """Dataset for legal text classification with transformers."""
     
-    def __init__(self, texts, labels, tokenizer, max_length=512):
+    def __init__(self, texts, labels, tokenizer, max_length=512, use_features=False):
         self.texts = texts
         self.labels = labels
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.use_features = use_features
     
     def __len__(self):
         return len(self.texts)
@@ -58,11 +61,17 @@ class LegalTextDataset(Dataset):
             return_tensors='pt'
         )
         
-        return {
+        item = {
             'input_ids': encoding['input_ids'].flatten(),
             'attention_mask': encoding['attention_mask'].flatten(),
             'label': torch.tensor(label, dtype=torch.long)
         }
+        
+        if self.use_features:
+            features = extract_readability_features(text)
+            item['readability_features'] = features
+        
+        return item
 
 
 def load_split_csv(processed_dir: str):
@@ -90,6 +99,123 @@ def encode_labels(labels):
     encoded = [label2id[label] for label in labels]
     
     return encoded, label2id, id2label
+
+
+def extract_readability_features(text):
+    """Extract readability and complexity features from text.
+    
+    Returns 8-dimensional feature vector:
+    - Flesch Reading Ease (0-100, higher = easier)
+    - Flesch-Kincaid Grade Level (US school grade)
+    - Average word length (characters)
+    - Average sentence length (words)
+    - Lexical diversity (unique/total words ratio)
+    - Complex words ratio (3+ syllables)
+    - Sentence count
+    - Word count (log-scaled)
+    """
+    if not text or not text.strip():
+        return torch.zeros(8, dtype=torch.float32)
+    
+    try:
+        # Basic stats
+        words = text.split()
+        word_count = max(1, len(words))
+        sentences = re.split(r'[.!?]+', text)
+        sentence_count = max(1, len([s for s in sentences if s.strip()]))
+        
+        # Flesch metrics (textstat handles edge cases)
+        flesch_ease = textstat.flesch_reading_ease(text)
+        flesch_grade = textstat.flesch_kincaid_grade(text)
+        
+        # Average word length
+        avg_word_len = np.mean([len(w) for w in words]) if words else 0.0
+        
+        # Average sentence length
+        avg_sent_len = word_count / sentence_count
+        
+        # Lexical diversity
+        unique_words = len(set(w.lower() for w in words))
+        lexical_diversity = unique_words / word_count if word_count > 0 else 0.0
+        
+        # Complex words (textstat syllable count)
+        complex_words = sum(1 for w in words if textstat.syllable_count(w) >= 3)
+        complex_ratio = complex_words / word_count if word_count > 0 else 0.0
+        
+        # Log-scaled word count (normalize very long texts)
+        log_word_count = np.log1p(word_count)
+        
+        features = [
+            flesch_ease / 100.0,  # normalize to [0,1]
+            flesch_grade / 20.0,  # normalize (grade levels ~0-20)
+            avg_word_len / 15.0,  # normalize (typical max ~12-15)
+            avg_sent_len / 50.0,  # normalize (typical max ~30-50)
+            lexical_diversity,    # already [0,1]
+            complex_ratio,        # already [0,1]
+            sentence_count / 100.0,  # normalize
+            log_word_count / 10.0    # normalize (log(~20k words) ≈ 10)
+        ]
+        
+        return torch.tensor(features, dtype=torch.float32)
+    
+    except Exception as e:
+        # Fallback to zeros if extraction fails
+        print(f"Warning: feature extraction failed: {e}")
+        return torch.zeros(8, dtype=torch.float32)
+
+
+class FusionModel(nn.Module):
+    """Transformer + Readability Features Fusion Model.
+    
+    Combines BERT-like embeddings with handcrafted readability metrics.
+    """
+    
+    def __init__(self, transformer_model, num_classes=5, feature_dim=8, hidden_dim=256, dropout=0.3):
+        super().__init__()
+        self.transformer = transformer_model
+        self.feature_dim = feature_dim
+        
+        # Get transformer hidden size (768 for BERT-base)
+        transformer_hidden_size = transformer_model.config.hidden_size
+        
+        # Fusion layers
+        self.fusion_fc = nn.Linear(transformer_hidden_size + feature_dim, hidden_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.classifier = nn.Linear(hidden_dim, num_classes)
+        
+    def forward(self, input_ids, attention_mask, readability_features=None, labels=None):
+        # Get transformer outputs
+        outputs = self.transformer(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+            return_dict=True
+        )
+        
+        # Extract [CLS] token embedding from last hidden state
+        cls_embedding = outputs.hidden_states[-1][:, 0, :]  # [batch, hidden_size]
+        
+        if readability_features is not None:
+            # Concatenate transformer embedding + readability features
+            fused = torch.cat([cls_embedding, readability_features], dim=1)
+        else:
+            # Fallback: pad with zeros if features not provided
+            batch_size = cls_embedding.size(0)
+            zero_features = torch.zeros(batch_size, self.feature_dim, device=cls_embedding.device)
+            fused = torch.cat([cls_embedding, zero_features], dim=1)
+        
+        # Classification head
+        x = self.dropout(F.relu(self.fusion_fc(fused)))
+        logits = self.classifier(x)
+        
+        # Return in format compatible with transformers
+        output = type('Output', (), {'logits': logits})()
+        
+        if labels is not None:
+            loss_fct = nn.CrossEntropyLoss()
+            output.loss = loss_fct(logits, labels)
+        
+        return output
 
 
 class FocalLoss(nn.Module):
@@ -133,7 +259,7 @@ class FocalLoss(nn.Module):
             return focal_loss
 
 
-def train_epoch(model, dataloader, optimizer, scheduler, device, criterion=None):
+def train_epoch(model, dataloader, optimizer, scheduler, device, criterion=None, use_fusion=False):
     """Train for one epoch."""
     model.train()
     total_loss = 0
@@ -150,13 +276,24 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, criterion=None)
         input_ids = batch['input_ids'].to(device, non_blocking=True)
         attention_mask = batch['attention_mask'].to(device, non_blocking=True)
         labels = batch['label'].to(device, non_blocking=True)
+        readability_features = batch.get('readability_features', None)
+        if readability_features is not None:
+            readability_features = readability_features.to(device, non_blocking=True)
         
         with amp.autocast('cuda', enabled=scaler.is_enabled()):
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            if use_fusion:
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask, 
+                              readability_features=readability_features)
+            else:
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
             logits = outputs.logits
             if criterion is None:
                 # Fallback to model's internal loss if no custom criterion provided
-                outputs_with_labels = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+                if use_fusion:
+                    outputs_with_labels = model(input_ids=input_ids, attention_mask=attention_mask,
+                                               readability_features=readability_features, labels=labels)
+                else:
+                    outputs_with_labels = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
                 loss = outputs_with_labels.loss / grad_acc_steps
             else:
                 loss = criterion(logits, labels) / grad_acc_steps
@@ -183,7 +320,7 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, criterion=None)
     return avg_loss, accuracy
 
 
-def evaluate(model, dataloader, device, criterion=None):
+def evaluate(model, dataloader, device, criterion=None, use_fusion=False):
     """Evaluate model on validation/test set."""
     model.eval()
     total_loss = 0
@@ -199,11 +336,23 @@ def evaluate(model, dataloader, device, criterion=None):
             input_ids = batch['input_ids'].to(device, non_blocking=True)
             attention_mask = batch['attention_mask'].to(device, non_blocking=True)
             labels = batch['label'].to(device, non_blocking=True)
+            readability_features = batch.get('readability_features', None)
+            if readability_features is not None:
+                readability_features = readability_features.to(device, non_blocking=True)
+            
             with amp.autocast('cuda', enabled=mixed):
-                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+                if use_fusion:
+                    outputs = model(input_ids=input_ids, attention_mask=attention_mask,
+                                  readability_features=readability_features)
+                else:
+                    outputs = model(input_ids=input_ids, attention_mask=attention_mask)
                 logits = outputs.logits
                 if criterion is None:
-                    outputs_with_labels = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+                    if use_fusion:
+                        outputs_with_labels = model(input_ids=input_ids, attention_mask=attention_mask,
+                                                   readability_features=readability_features, labels=labels)
+                    else:
+                        outputs_with_labels = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
                     loss = outputs_with_labels.loss
                 else:
                     loss = criterion(logits, labels)
@@ -278,6 +427,7 @@ def main():
     use_class_weights = os.getenv('USE_CLASS_WEIGHTS', '1') == '1'  # enable class weighting by default
     use_focal_loss = os.getenv('USE_FOCAL_LOSS', '0') == '1'  # Focal Loss toggle
     focal_gamma = float(os.getenv('FOCAL_GAMMA', '2.0'))  # Focal Loss gamma parameter
+    use_feature_fusion = os.getenv('USE_FEATURE_FUSION', '0') == '1'  # Feature fusion toggle
     
     print(f"Loading data from {processed_dir}")
     train_df, val_df, test_df = load_split_csv(processed_dir)
@@ -306,12 +456,24 @@ def main():
     # Load tokenizer and model
     print(f"Loading transformer model: {model_name}")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSequenceClassification.from_pretrained(
-        model_name,
-        num_labels=num_labels,
-        id2label=id2label,
-        label2id=label2id
-    )
+    
+    # Create fusion or standard model based on configuration
+    if use_feature_fusion:
+        print("Creating FusionModel with readability features (8-dim)")
+        base_model = AutoModelForSequenceClassification.from_pretrained(
+            model_name,
+            num_labels=num_labels,
+            id2label=id2label,
+            label2id=label2id
+        )
+        model = FusionModel(base_model, num_classes=num_labels, feature_dim=8)
+    else:
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_name,
+            num_labels=num_labels,
+            id2label=id2label,
+            label2id=label2id
+        )
     model.to(device)
 
     # Compute class weights for handling class imbalance
@@ -334,7 +496,7 @@ def main():
     
     # Prepare datasets
     X_train = train_df['text'].astype(str).tolist()
-    train_dataset = LegalTextDataset(X_train, y_train, tokenizer, max_length)
+    train_dataset = LegalTextDataset(X_train, y_train, tokenizer, max_length, use_features=use_feature_fusion)
     num_workers = int(os.getenv('NUM_WORKERS', '2'))
     train_loader = DataLoader(
         train_dataset,
@@ -351,15 +513,15 @@ def main():
         y_val_str = val_df['label'].astype(str).tolist()
         y_val = [label2id[label] for label in y_val_str]
         X_val = val_df['text'].astype(str).tolist()
-        val_dataset = LegalTextDataset(X_val, y_val, tokenizer, max_length)
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        pin_memory=device.type=='cuda',
-        num_workers=num_workers,
-        persistent_workers=num_workers > 0
-    )
+        val_dataset = LegalTextDataset(X_val, y_val, tokenizer, max_length, use_features=use_feature_fusion)
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            pin_memory=device.type=='cuda',
+            num_workers=num_workers,
+            persistent_workers=num_workers > 0
+        )
     
     # Optimizer and scheduler
     optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
@@ -386,14 +548,14 @@ def main():
     for epoch in range(epochs):
         print(f"\nEpoch {epoch + 1}/{epochs}")
         
-        train_loss, train_acc = train_epoch(model, train_loader, optimizer, scheduler, device, criterion)
+        train_loss, train_acc = train_epoch(model, train_loader, optimizer, scheduler, device, criterion, use_fusion=use_feature_fusion)
         history['train_loss'].append(train_loss)
         history['train_acc'].append(train_acc)
         
         print(f"Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.4f}")
         
         if val_loader is not None:
-            val_loss, val_acc, val_preds, val_trues = evaluate(model, val_loader, device, criterion)
+            val_loss, val_acc, val_preds, val_trues = evaluate(model, val_loader, device, criterion, use_fusion=use_feature_fusion)
             history['val_loss'].append(val_loss)
             history['val_acc'].append(val_acc)
             val_macro_f1 = f1_score(val_trues, val_preds, average='macro') if len(val_trues) > 0 else 0.0
@@ -438,7 +600,7 @@ def main():
         y_test_str = test_df['label'].astype(str).tolist()
         y_test = [label2id[label] for label in y_test_str]
         X_test = test_df['text'].astype(str).tolist()
-        test_dataset = LegalTextDataset(X_test, y_test, tokenizer, max_length)
+        test_dataset = LegalTextDataset(X_test, y_test, tokenizer, max_length, use_features=use_feature_fusion)
         test_loader = DataLoader(
             test_dataset,
             batch_size=batch_size,
@@ -447,7 +609,7 @@ def main():
             num_workers=num_workers,
             persistent_workers=num_workers > 0
         )
-        test_loss, test_acc, predictions, true_labels = evaluate(model, test_loader, device, criterion)
+        test_loss, test_acc, predictions, true_labels = evaluate(model, test_loader, device, criterion, use_fusion=use_feature_fusion)
         print(f"\nTest Loss: {test_loss:.4f}, Test Accuracy: {test_acc:.4f}")
         test_macro_f1 = f1_score(true_labels, predictions, average='macro')
         print(f"Test Macro-F1: {test_macro_f1:.4f}")

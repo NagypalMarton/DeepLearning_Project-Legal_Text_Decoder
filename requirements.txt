@@ -10,6 +10,7 @@ seaborn>=0.12.0
 torch>=2.0.0
 transformers>=4.40.0
 accelerate>=0.29.0
+textstat>=0.7.3
 
 # API and Frontend (optional, for ML service)
 fastapi>=0.110.0
