@@ -3,7 +3,8 @@
 
 param(
     [switch]$NoBuild = $false,
-    [switch]$CpuOnly = $false
+    [switch]$CpuOnly = $false,
+    [string]$EnvFile = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -101,6 +102,12 @@ $dockerArgs = @(
 
 if ($GPU_FLAG) {
     $dockerArgs += $GPU_FLAG
+}
+
+# Add env file if specified
+if ($EnvFile -and (Test-Path $EnvFile)) {
+    Write-ColorOutput "Blue" "📋 Loading environment variables from: $EnvFile"
+    $dockerArgs += @("--env-file", $EnvFile)
 }
 
 $dockerArgs += @(

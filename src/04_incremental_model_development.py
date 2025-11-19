@@ -420,14 +420,14 @@ def main():
     learning_rate = float(os.getenv('LEARNING_RATE', '2e-5'))
     weight_decay = float(os.getenv('WEIGHT_DECAY', '0.01'))  # L2 regularization
     max_length = int(os.getenv('MAX_LENGTH', '320'))  # optimized for 4GB VRAM
-    label_smoothing = float(os.getenv('LABEL_SMOOTHING', '0.15'))  # ordinal classification smoothing
+    label_smoothing = float(os.getenv('LABEL_SMOOTHING', '0.05'))  # OPTIMIZED: reduced from 0.15
     early_stopping_enabled = os.getenv('EARLY_STOPPING', '1') == '1'
-    early_stopping_patience = int(os.getenv('EARLY_STOPPING_PATIENCE', '2'))  # optimized convergence
-    save_best_metric = os.getenv('SAVE_BEST_METRIC', 'val_macro_f1')  # track macro-F1 by default for class balance
-    use_class_weights = os.getenv('USE_CLASS_WEIGHTS', '1') == '1'  # enable class weighting by default
+    early_stopping_patience = int(os.getenv('EARLY_STOPPING_PATIENCE', '4'))  # OPTIMIZED: increased from 2
+    save_best_metric = os.getenv('SAVE_BEST_METRIC', 'val_weighted_f1')  # OPTIMIZED: weighted F1 for imbalanced data
+    use_class_weights = os.getenv('USE_CLASS_WEIGHTS', '1') == '1'  # sqrt-scaled class weights
     use_focal_loss = os.getenv('USE_FOCAL_LOSS', '0') == '1'  # Focal Loss toggle
     focal_gamma = float(os.getenv('FOCAL_GAMMA', '2.0'))  # Focal Loss gamma parameter
-    use_feature_fusion = os.getenv('USE_FEATURE_FUSION', '0') == '1'  # Feature fusion toggle
+    use_feature_fusion = os.getenv('USE_FEATURE_FUSION', '1') == '1'  # OPTIMIZED: Feature Fusion enabled
     
     print(f"Loading data from {processed_dir}")
     train_df, val_df, test_df = load_split_csv(processed_dir)
@@ -479,9 +479,12 @@ def main():
     # Compute class weights for handling class imbalance
     class_weights_tensor = None
     if use_class_weights:
-        class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=np.array(y_train))
+        class_weights_raw = compute_class_weight('balanced', classes=np.unique(y_train), y=np.array(y_train))
+        # Apply sqrt scaling to reduce aggressiveness (less extreme weights)
+        class_weights = np.sqrt(class_weights_raw)
         class_weights_tensor = torch.tensor(class_weights, dtype=torch.float32).to(device)
-        print(f"Class weights (balanced): {class_weights}")
+        print(f"Class weights (sqrt-scaled): {class_weights}")
+        print(f"Class weights (original balanced): {class_weights_raw}")
     
     # Loss function selection
     if use_focal_loss:
@@ -538,7 +541,7 @@ def main():
     print(f"Starting training for {epochs} epochs...")
     print(f"Mixed precision: {'ON' if (os.getenv('MIXED_PRECISION','1')=='1' and device.type=='cuda') else 'OFF'} | Grad Acc Steps: {grad_acc_steps}")
     print(f"Weight decay: {weight_decay}")
-    history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': [], 'val_macro_f1': []}
+    history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': [], 'val_macro_f1': [], 'val_weighted_f1': []}
 
     # Early stopping & best checkpoint tracking
     best_metric_val = float('inf') if save_best_metric == 'val_loss' else -float('inf')
@@ -559,19 +562,47 @@ def main():
             history['val_loss'].append(val_loss)
             history['val_acc'].append(val_acc)
             val_macro_f1 = f1_score(val_trues, val_preds, average='macro') if len(val_trues) > 0 else 0.0
+            val_weighted_f1 = f1_score(val_trues, val_preds, average='weighted') if len(val_trues) > 0 else 0.0
             history['val_macro_f1'].append(val_macro_f1)
-            print(f"Val Loss: {val_loss:.4f}, Val Accuracy: {val_acc:.4f}, Val Macro-F1: {val_macro_f1:.4f}")
+            history['val_weighted_f1'].append(val_weighted_f1)
+            print(f"Val Loss: {val_loss:.4f}, Val Accuracy: {val_acc:.4f}, Val Macro-F1: {val_macro_f1:.4f}, Val Weighted-F1: {val_weighted_f1:.4f}")
 
-            # Early stopping logic
-            current = val_loss if save_best_metric == 'val_loss' else val_macro_f1
+            # Early stopping logic - support multiple metrics
+            if save_best_metric == 'val_loss':
+                current = val_loss
+            elif save_best_metric == 'val_weighted_f1':
+                current = val_weighted_f1
+            else:  # val_macro_f1
+                current = val_macro_f1
+            
             improved = (current < best_metric_val - 1e-3) if save_best_metric == 'val_loss' else (current > best_metric_val + 1e-4)
             if improved:
                 best_metric_val = current
                 no_improve_epochs = 0
-                # save best checkpoint
+                # Save best checkpoint - handle both FusionModel and standard transformers
                 Path(best_model_path).mkdir(parents=True, exist_ok=True)
-                model.save_pretrained(best_model_path)
-                tokenizer.save_pretrained(best_model_path)
+                
+                if use_feature_fusion:
+                    # For FusionModel: save using torch.save
+                    checkpoint = {
+                        'model_state_dict': model.state_dict(),
+                        'best_metric_value': best_metric_val,
+                        'save_best_metric': save_best_metric,
+                        'label2id': label2id,
+                        'id2label': id2label,
+                        'use_feature_fusion': True,
+                        'num_labels': num_labels
+                    }
+                    torch.save(checkpoint, os.path.join(best_model_path, 'pytorch_model.bin'))
+                    tokenizer.save_pretrained(best_model_path)
+                    # Save config for reference
+                    with open(os.path.join(best_model_path, 'fusion_config.json'), 'w') as f:
+                        json.dump({'num_classes': num_labels, 'feature_dim': 8, 'hidden_dim': 256, 'dropout': 0.3}, f)
+                else:
+                    # For standard transformer: use save_pretrained
+                    model.save_pretrained(best_model_path)
+                    tokenizer.save_pretrained(best_model_path)
+                
                 print(f"Saved BEST model to {best_model_path} (metric {save_best_metric} = {current:.4f})")
             else:
                 no_improve_epochs += 1
@@ -582,10 +613,23 @@ def main():
     # Load best checkpoint as the final model
     if os.path.isdir(best_model_path):
         print(f"\nLoading BEST checkpoint from {best_model_path} as final model...")
-        model = AutoModelForSequenceClassification.from_pretrained(best_model_path)
-        model.to(device)
-        tokenizer = AutoTokenizer.from_pretrained(best_model_path)
-        print(f"Best checkpoint loaded (metric {save_best_metric} = {best_metric_val:.4f})")
+        
+        if use_feature_fusion:
+            # Load FusionModel checkpoint
+            checkpoint_path = os.path.join(best_model_path, 'pytorch_model.bin')
+            if os.path.exists(checkpoint_path):
+                checkpoint = torch.load(checkpoint_path, map_location=device)
+                model.load_state_dict(checkpoint['model_state_dict'])
+                tokenizer = AutoTokenizer.from_pretrained(best_model_path)
+                print(f"Best FusionModel checkpoint loaded (metric {save_best_metric} = {best_metric_val:.4f})")
+            else:
+                print(f"Warning: FusionModel checkpoint not found at {checkpoint_path}")
+        else:
+            # Load standard transformer
+            model = AutoModelForSequenceClassification.from_pretrained(best_model_path)
+            model.to(device)
+            tokenizer = AutoTokenizer.from_pretrained(best_model_path)
+            print(f"Best checkpoint loaded (metric {save_best_metric} = {best_metric_val:.4f})")
     else:
         print(f"\nWarning: Best checkpoint not found, using current model state")
     

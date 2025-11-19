@@ -1,5 +1,12 @@
 docker build -t deeplearning_project-legal_text_decoder:1.0 .
 
+# OPTIMIZED VERSION (Default settings in code):
+# - Label smoothing: 0.05 (reduced from 0.15)
+# - Early stopping patience: 4 epochs (increased from 2)
+# - Metric: val_weighted_f1 (changed from val_macro_f1)
+# - Class weights: sqrt-scaled (less aggressive)
+# - Feature Fusion: ENABLED (8-dim readability features)
+
 # Windows PowerShell-hez javított verzió:
 docker run --rm --gpus all `
   -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" `
@@ -8,3 +15,13 @@ docker run --rm --gpus all `
 
 # Alternatíva: egy sorban (nincs vonalfolytatás):
 docker run --rm --gpus all -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" deeplearning_project-legal_text_decoder:1.0 > training_log.txt 2>&1
+
+# OVERRIDE optimizations with environment variables (optional):
+docker run --rm --gpus all `
+  -e LABEL_SMOOTHING=0.15 `
+  -e EARLY_STOPPING_PATIENCE=2 `
+  -e SAVE_BEST_METRIC=val_macro_f1 `
+  -e USE_FEATURE_FUSION=0 `
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" `
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" `
+  deeplearning_project-legal_text_decoder:1.0 > training_log.txt 2>&1
