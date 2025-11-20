@@ -109,7 +109,8 @@ def build_ordinal_mapping(labels):
     numeric = [normalize_label(l) for l in labels]
     unique = sorted(set(numeric))
     label2id = {u: i for i, u in enumerate(unique)}
-    id2label = {i: str(u) for u in unique}
+    # Fix: enumerate was missing; map each id back to string form
+    id2label = {label2id[u]: str(u) for u in unique}
     encoded = [label2id[n] for n in numeric]
     return encoded, label2id, id2label
 
@@ -578,7 +579,8 @@ def main():
     val_loader = None
     if val_df is not None:
         y_val_str = val_df['label'].astype(str).tolist()
-        y_val = [label2id[label] for label in y_val_str]
+        y_val_numeric = [normalize_label(label) for label in y_val_str]
+        y_val = [label2id[n] for n in y_val_numeric]
         X_val = val_df['text'].astype(str).tolist()
         val_dataset = LegalTextDataset(X_val, y_val, tokenizer, max_length, use_features=use_feature_fusion, stats=train_dataset.stats)
         val_loader = DataLoader(
@@ -748,7 +750,8 @@ def main():
     if test_df is not None:
         
         y_test_str = test_df['label'].astype(str).tolist()
-        y_test = [label2id[label] for label in y_test_str]
+        y_test_numeric = [normalize_label(label) for label in y_test_str]
+        y_test = [label2id[n] for n in y_test_numeric]
         X_test = test_df['text'].astype(str).tolist()
         test_dataset = LegalTextDataset(X_test, y_test, tokenizer, max_length, use_features=use_feature_fusion, stats=train_dataset.stats)
         test_loader = DataLoader(
