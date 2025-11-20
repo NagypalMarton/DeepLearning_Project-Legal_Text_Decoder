@@ -131,14 +131,44 @@ Példák: `01-acquisition_raw_eda_statistics.txt`, `03-baseline_test_confusion_m
 - `output/reports/03-baseline_val_metrics_summary.png`, `03-baseline_test_metrics_summary.png`
   (Accuracy, Weighted F1, MAE, RMSE vizuális összefoglaló)
 
+
 ### 4. 04_incremental_model_development.py
-**Cél:** Transformer (HuBERT) fine-tuning, legjobb checkpoint mentése
+**Cél:** Transformer (HuBERT) fine-tuning, feature fusion, ordinal label mapping, legjobb checkpoint mentése
+
+**Fő fejlesztések:**
+- Readability feature fusion (MLP branch, standardized)
+- Mean pooling (stabilabb, mint CLS)
+- Sqrt-scaled osztálysúlyok, label smoothing
+- Ordinal label mapping (1–5 skála)
+- **CORAL ordinal regression loss támogatás** (opcionális, `USE_CORAL=1`)
+- Early stopping, checkpoint mentés
 
 **Kimenetek:**
 - `output/models/best_transformer_model/` — csak a legjobb checkpoint
 - `output/models/label_mapping.json` — label-idx mapping
 - `output/reports/04-transformer_training_history.png`
 - `output/reports/04-transformer_test_report.json` (Accuracy, Macro/Weighted F1, MAE, RMSE)
+- `output/reports/04-transformer_test_confusion_matrix.png`, per-class metrikák
+
+**Legutóbbi eredmények (baseline-hoz képest):**
+
+| Metrika         | Baseline (03) | Incrementális (04) |
+|-----------------|---------------|--------------------|
+| Accuracy        | 0.4474        | 0.4459             |
+| Weighted F1     | 0.4158        | 0.4378             |
+| Macro F1        | ~0.31         | 0.3664             |
+| MAE             | 0.7674        | 0.7615             |
+| RMSE            | 1.1392        | 1.1261             |
+
+**Előnyök:**
+- Macro F1 jelentősen javult (alulreprezentált osztályok)
+- Weighted F1 stabilan jobb
+- MAE/RMSE kismértékben csökkent
+- Tanulás stabilabb, nincs ugrás az epochok között
+
+**CORAL loss (opcionális):**
+- További MAE/RMSE csökkenés, Macro F1 javulás várható
+- Aktiválás: `USE_CORAL=1` környezeti változóval
 
 ### 5. 05_defining_evaluation_criteria.py
 **Cél:** Transformer batch inference, metrikák, confusion matrix
