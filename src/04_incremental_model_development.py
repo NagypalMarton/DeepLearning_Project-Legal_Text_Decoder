@@ -178,14 +178,79 @@ def extract_readability_features(text):
         return torch.zeros(8, dtype=torch.float32)
 
 
+class CoralOrdinalHead(nn.Module):
+    """CORAL (Consistent Rank Logits) ordinal regression head.
+    
+    For K classes (0..K-1), outputs K-1 threshold logits.
+    Each logit represents P(y >= k+1) for k in 0..K-2.
+    """
+    def __init__(self, in_dim, num_classes):
+        super().__init__()
+        self.num_classes = num_classes
+        self.fc = nn.Linear(in_dim, num_classes - 1)
+    
+    def forward(self, x):
+        # Returns cumulative logits [B, K-1]
+        return self.fc(x)
+
+
+def coral_loss(logits, targets, reduction='mean'):
+    """CORAL ordinal regression loss.
+    
+    Args:
+        logits: [B, K-1] cumulative threshold logits
+        targets: [B] integer class labels in [0..K-1]
+        reduction: 'mean' or 'sum'
+    
+    Returns:
+        Binary cross-entropy loss over all thresholds
+    """
+    batch_size = logits.size(0)
+    num_thresholds = logits.size(1)
+    
+    # Create binary labels: y_ik = 1 if target > k, else 0
+    # For each sample, create K-1 binary labels
+    targets_expanded = targets.unsqueeze(1).expand(-1, num_thresholds)  # [B, K-1]
+    threshold_indices = torch.arange(num_thresholds, device=logits.device).unsqueeze(0)  # [1, K-1]
+    
+    # Binary indicator: is target > threshold_k?
+    binary_labels = (targets_expanded > threshold_indices).float()
+    
+    # Binary cross-entropy for each threshold
+    loss = F.binary_cross_entropy_with_logits(logits, binary_labels, reduction=reduction)
+    
+    return loss
+
+
+def coral_predict(logits):
+    """Convert CORAL cumulative logits to class predictions.
+    
+    Args:
+        logits: [B, K-1] cumulative threshold logits
+    
+    Returns:
+        predictions: [B] class indices in [0..K-1]
+    """
+    # Get cumulative probabilities P(y > k)
+    cum_probs = torch.sigmoid(logits)  # [B, K-1]
+    
+    # Predict class as the first threshold where cum_prob < 0.5
+    # If all probs > 0.5, predict last class
+    predictions = (cum_probs > 0.5).sum(dim=1)  # Count how many thresholds are passed
+    
+    return predictions
+
+
 class FusionModel(nn.Module):
     """Transformer + standardized readability feature MLP fusion with mean pooling."""
 
-    def __init__(self, transformer_model, num_classes=5, feature_dim=8, feat_hidden=32, hidden_dim=256, dropout=0.3, pooling='mean'):
+    def __init__(self, transformer_model, num_classes=5, feature_dim=8, feat_hidden=32, hidden_dim=256, dropout=0.3, pooling='mean', use_coral=False):
         super().__init__()
         self.transformer = transformer_model
         self.feature_dim = feature_dim
         self.pooling = pooling
+        self.num_classes = num_classes
+        self.use_coral = use_coral
         transformer_hidden_size = transformer_model.config.hidden_size
         self.feature_branch = nn.Sequential(
             nn.Linear(feature_dim, feat_hidden),
@@ -197,7 +262,13 @@ class FusionModel(nn.Module):
         )
         self.fusion_fc = nn.Linear(transformer_hidden_size + feat_hidden, hidden_dim)
         self.dropout = nn.Dropout(dropout)
-        self.classifier = nn.Linear(hidden_dim, num_classes)
+        
+        if use_coral:
+            self.coral_head = CoralOrdinalHead(hidden_dim, num_classes)
+            self.classifier = None
+        else:
+            self.classifier = nn.Linear(hidden_dim, num_classes)
+            self.coral_head = None
 
     def _pool(self, hidden_states, attention_mask):
         if self.pooling == 'mean':
@@ -223,10 +294,18 @@ class FusionModel(nn.Module):
             feat = torch.zeros(pooled.size(0), self.feature_branch[0].out_features, device=pooled.device)
         fused = torch.cat([pooled, feat], dim=1)
         x = self.dropout(F.gelu(self.fusion_fc(fused)))
-        logits = self.classifier(x)
+        
+        if self.use_coral:
+            logits = self.coral_head(x)  # [B, K-1] threshold logits
+        else:
+            logits = self.classifier(x)  # [B, K] class logits
+        
         output = type('Output', (), {'logits': logits})()
         if labels is not None:
-            output.loss = nn.CrossEntropyLoss()(logits, labels)
+            if self.use_coral:
+                output.loss = coral_loss(logits, labels)
+            else:
+                output.loss = nn.CrossEntropyLoss()(logits, labels)
         return output
 
 
@@ -318,7 +397,7 @@ class FocalLoss(nn.Module):
             return focal_loss
 
 
-def train_epoch(model, dataloader, optimizer, scheduler, device, criterion=None, use_fusion=False):
+def train_epoch(model, dataloader, optimizer, scheduler, device, criterion=None, use_fusion=False, use_coral=False):
     """Train for one epoch."""
     model.train()
     total_loss = 0
@@ -368,7 +447,10 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, criterion=None,
             scheduler.step()
         
         total_loss += loss.item() * grad_acc_steps  # accumulate real loss value
-        preds = torch.argmax(logits.detach(), dim=1)
+        if use_coral:
+            preds = coral_predict(logits.detach())
+        else:
+            preds = torch.argmax(logits.detach(), dim=1)
         predictions.extend(preds.cpu().numpy())
         true_labels.extend(labels.cpu().numpy())
         progress_bar.set_postfix({'loss': (total_loss / (step_count))})
@@ -379,7 +461,7 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, criterion=None,
     return avg_loss, accuracy
 
 
-def evaluate(model, dataloader, device, criterion=None, use_fusion=False):
+def evaluate(model, dataloader, device, criterion=None, use_fusion=False, use_coral=False):
     """Evaluate model on validation/test set."""
     model.eval()
     total_loss = 0
@@ -416,7 +498,10 @@ def evaluate(model, dataloader, device, criterion=None, use_fusion=False):
                 else:
                     loss = criterion(logits, labels)
             total_loss += loss.item()
-            preds = torch.argmax(logits.detach(), dim=1)
+            if use_coral:
+                preds = coral_predict(logits.detach())
+            else:
+                preds = torch.argmax(logits.detach(), dim=1)
             predictions.extend(preds.cpu().numpy())
             true_labels.extend(labels.cpu().numpy())
     
@@ -476,7 +561,7 @@ def main():
     model_name = os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc')  # Hungarian BERT
     batch_size = int(os.getenv('BATCH_SIZE', '8'))  # increased default; still safe for 4GB VRAM
     epochs = int(os.getenv('EPOCHS', '10'))  # increased default epochs for better convergence
-    learning_rate = float(os.getenv('LEARNING_RATE', '2e-5'))
+    learning_rate = float(os.getenv('LEARNING_RATE', '1.5e-5'))
     weight_decay = float(os.getenv('WEIGHT_DECAY', '0.01'))  # L2 regularization
     max_length = int(os.getenv('MAX_LENGTH', '320'))  # optimized for 4GB VRAM
     label_smoothing = float(os.getenv('LABEL_SMOOTHING', '0.02'))  # further reduced for crisper class boundaries
@@ -486,6 +571,7 @@ def main():
     use_class_weights = os.getenv('USE_CLASS_WEIGHTS', '1') == '1'  # sqrt-scaled class weights
     use_focal_loss = os.getenv('USE_FOCAL_LOSS', '0') == '1'  # Focal Loss toggle
     focal_gamma = float(os.getenv('FOCAL_GAMMA', '2.0'))  # Focal Loss gamma parameter
+    use_coral = os.getenv('USE_CORAL', '0') == '1'  # CORAL ordinal regression
     use_feature_fusion = os.getenv('USE_FEATURE_FUSION', '1') == '1'  # OPTIMIZED: Feature Fusion enabled
     scheduler_type = os.getenv('SCHEDULER', 'linear').lower()  # 'linear' | 'cosine'
     freeze_n_layers = int(os.getenv('FREEZE_N_LAYERS', '0'))
@@ -520,10 +606,11 @@ def main():
     
     # Create fusion or standard model based on configuration
     if use_feature_fusion:
-        print("Creating FusionModel with readability features (standardized + MLP)")
+        head_type = 'CORAL ordinal' if use_coral else 'standard classifier'
+        print(f"Creating FusionModel with readability features (standardized + MLP) + {head_type}")
         base_model = AutoModel.from_pretrained(model_name)
         pooling_mode = os.getenv('POOLING', 'mean')
-        model = FusionModel(base_model, num_classes=num_labels, feature_dim=8, pooling=pooling_mode)
+        model = FusionModel(base_model, num_classes=num_labels, feature_dim=8, pooling=pooling_mode, use_coral=use_coral)
     else:
         model = AutoModelForSequenceClassification.from_pretrained(
             model_name,
@@ -551,7 +638,11 @@ def main():
         print(f"Class weights (original balanced): {class_weights_raw}")
     
     # Loss function selection
-    if use_focal_loss:
+    if use_coral:
+        # CORAL uses its own loss function (binary CE per threshold)
+        criterion = None
+        print("Using CORAL ordinal regression loss")
+    elif use_focal_loss:
         criterion = FocalLoss(alpha=class_weights_tensor, gamma=focal_gamma, label_smoothing=label_smoothing)
         print(f"Using Focal Loss (gamma={focal_gamma}, label_smoothing={label_smoothing})")
     elif use_class_weights:
@@ -597,7 +688,7 @@ def main():
     grad_acc_steps = int(os.getenv('GRAD_ACC_STEPS', '2'))  # gradient accumulation for effective larger batch
     effective_steps_per_epoch = math.ceil(len(train_loader) / max(1, grad_acc_steps))
     total_steps = effective_steps_per_epoch * epochs
-    warmup_steps = int(0.1 * total_steps)
+    warmup_steps = int(0.15 * total_steps)
     if scheduler_type == 'cosine':
         scheduler = get_cosine_schedule_with_warmup(
             optimizer,
@@ -630,6 +721,7 @@ def main():
         'use_class_weights': use_class_weights,
         'use_focal_loss': use_focal_loss,
         'focal_gamma': focal_gamma,
+        'use_coral': use_coral,
         'use_feature_fusion': use_feature_fusion,
         'scheduler': scheduler_type,
         'freeze_n_layers': freeze_n_layers,
@@ -656,14 +748,14 @@ def main():
     for epoch in range(epochs):
         print(f"\nEpoch {epoch + 1}/{epochs}")
         
-        train_loss, train_acc = train_epoch(model, train_loader, optimizer, scheduler, device, criterion, use_fusion=use_feature_fusion)
+        train_loss, train_acc = train_epoch(model, train_loader, optimizer, scheduler, device, criterion, use_fusion=use_feature_fusion, use_coral=use_coral)
         history['train_loss'].append(train_loss)
         history['train_acc'].append(train_acc)
         
         print(f"Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.4f}")
         
         if val_loader is not None:
-            val_loss, val_acc, val_preds, val_trues = evaluate(model, val_loader, device, criterion, use_fusion=use_feature_fusion)
+            val_loss, val_acc, val_preds, val_trues = evaluate(model, val_loader, device, criterion, use_fusion=use_feature_fusion, use_coral=use_coral)
             history['val_loss'].append(val_loss)
             history['val_acc'].append(val_acc)
             val_macro_f1 = f1_score(val_trues, val_preds, average='macro') if len(val_trues) > 0 else 0.0
@@ -696,6 +788,7 @@ def main():
                         'label2id': label2id,
                         'id2label': id2label,
                         'use_feature_fusion': True,
+                        'use_coral': use_coral,
                         'num_labels': num_labels
                     }
                     torch.save(checkpoint, os.path.join(best_model_path, 'pytorch_model.bin'))
@@ -762,7 +855,7 @@ def main():
             num_workers=num_workers,
             persistent_workers=num_workers > 0
         )
-        test_loss, test_acc, predictions, true_labels = evaluate(model, test_loader, device, criterion, use_fusion=use_feature_fusion)
+        test_loss, test_acc, predictions, true_labels = evaluate(model, test_loader, device, criterion, use_fusion=use_feature_fusion, use_coral=use_coral)
         print(f"\nTest Loss: {test_loss:.4f}, Test Accuracy: {test_acc:.4f}")
         test_macro_f1 = f1_score(true_labels, predictions, average='macro')
         print(f"Test Macro-F1: {test_macro_f1:.4f}")
