@@ -1,6 +1,5 @@
 import os
 import json
-import pickle
 from pathlib import Path
 import random
 
@@ -11,9 +10,10 @@ import torch
 import torch.nn as nn
 from torch import amp
 from torch.utils.data import Dataset, DataLoader
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, AutoModel, get_linear_schedule_with_warmup
+from transformers import get_cosine_schedule_with_warmup
 from torch.optim import AdamW
-from sklearn.metrics import classification_report, accuracy_score, f1_score, mean_absolute_error, mean_squared_error
+from sklearn.metrics import classification_report, accuracy_score, f1_score, mean_absolute_error, mean_squared_error, confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
 import matplotlib
 matplotlib.use("Agg")
@@ -23,6 +23,7 @@ import sys
 import torch.nn.functional as F
 import textstat
 import re
+from datetime import datetime
 
 
 def set_seed(seed=42):
@@ -36,22 +37,34 @@ def set_seed(seed=42):
 
 
 class LegalTextDataset(Dataset):
-    """Dataset for legal text classification with transformers."""
-    
-    def __init__(self, texts, labels, tokenizer, max_length=512, use_features=False):
+    """Dataset for legal text classification (optionally with standardized readability features)."""
+
+    def __init__(self, texts, labels, tokenizer, max_length=512, use_features=False, compute_stats=False, stats=None):
         self.texts = texts
         self.labels = labels
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.use_features = use_features
-    
+        self._precomputed_features = None
+        self.stats = stats
+        if self.use_features:
+            raw_feats = [extract_readability_features(str(t)).numpy() for t in self.texts]
+            if compute_stats:
+                mean = np.mean(raw_feats, axis=0)
+                std = np.std(raw_feats, axis=0) + 1e-6
+                self.stats = {'mean': mean.tolist(), 'std': std.tolist()}
+            else:
+                mean = np.array(self.stats['mean'])
+                std = np.array(self.stats['std'])
+            norm_feats = (np.stack(raw_feats) - mean) / std
+            self._precomputed_features = torch.tensor(norm_feats, dtype=torch.float32)
+
     def __len__(self):
         return len(self.texts)
-    
+
     def __getitem__(self, idx):
         text = str(self.texts[idx])
         label = self.labels[idx]
-        
         encoding = self.tokenizer(
             text,
             add_special_tokens=True,
@@ -60,17 +73,13 @@ class LegalTextDataset(Dataset):
             truncation=True,
             return_tensors='pt'
         )
-        
         item = {
             'input_ids': encoding['input_ids'].flatten(),
             'attention_mask': encoding['attention_mask'].flatten(),
             'label': torch.tensor(label, dtype=torch.long)
         }
-        
-        if self.use_features:
-            features = extract_readability_features(text)
-            item['readability_features'] = features
-        
+        if self.use_features and self._precomputed_features is not None:
+            item['readability_features'] = self._precomputed_features[idx]
         return item
 
 
@@ -90,14 +99,18 @@ def load_split_csv(processed_dir: str):
     return train_df, val_df, test_df
 
 
-def encode_labels(labels):
-    """Convert string labels to numeric indices."""
-    unique_labels = sorted(list(set(labels)))
-    label2id = {label: idx for idx, label in enumerate(unique_labels)}
-    id2label = {idx: label for label, idx in label2id.items()}
-    
-    encoded = [label2id[label] for label in labels]
-    
+def normalize_label(raw):
+    s = str(raw).strip()
+    m = re.match(r'^([1-5])', s)
+    return int(m.group(1)) if m else 0
+
+
+def build_ordinal_mapping(labels):
+    numeric = [normalize_label(l) for l in labels]
+    unique = sorted(set(numeric))
+    label2id = {u: i for i, u in enumerate(unique)}
+    id2label = {i: str(u) for u in unique}
+    encoded = [label2id[n] for n in numeric]
     return encoded, label2id, id2label
 
 
@@ -165,57 +178,102 @@ def extract_readability_features(text):
 
 
 class FusionModel(nn.Module):
-    """Transformer + Readability Features Fusion Model.
-    
-    Combines BERT-like embeddings with handcrafted readability metrics.
-    """
-    
-    def __init__(self, transformer_model, num_classes=5, feature_dim=8, hidden_dim=256, dropout=0.3):
+    """Transformer + standardized readability feature MLP fusion with mean pooling."""
+
+    def __init__(self, transformer_model, num_classes=5, feature_dim=8, feat_hidden=32, hidden_dim=256, dropout=0.3, pooling='mean'):
         super().__init__()
         self.transformer = transformer_model
         self.feature_dim = feature_dim
-        
-        # Get transformer hidden size (768 for BERT-base)
+        self.pooling = pooling
         transformer_hidden_size = transformer_model.config.hidden_size
-        
-        # Fusion layers
-        self.fusion_fc = nn.Linear(transformer_hidden_size + feature_dim, hidden_dim)
+        self.feature_branch = nn.Sequential(
+            nn.Linear(feature_dim, feat_hidden),
+            nn.LayerNorm(feat_hidden),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(feat_hidden, feat_hidden),
+            nn.GELU()
+        )
+        self.fusion_fc = nn.Linear(transformer_hidden_size + feat_hidden, hidden_dim)
         self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(hidden_dim, num_classes)
-        
+
+    def _pool(self, hidden_states, attention_mask):
+        if self.pooling == 'mean':
+            mask = attention_mask.unsqueeze(-1)
+            summed = (hidden_states * mask).sum(1)
+            counts = mask.sum(1).clamp(min=1)
+            return summed / counts
+        # default CLS
+        return hidden_states[:, 0, :]
+
     def forward(self, input_ids, attention_mask, readability_features=None, labels=None):
-        # Get transformer outputs
         outputs = self.transformer(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            output_hidden_states=True,
+            output_hidden_states=False,
             return_dict=True
         )
-        
-        # Extract [CLS] token embedding from last hidden state
-        cls_embedding = outputs.hidden_states[-1][:, 0, :]  # [batch, hidden_size]
-        
+        hidden = outputs.last_hidden_state  # [B, L, H]
+        pooled = self._pool(hidden, attention_mask)
         if readability_features is not None:
-            # Concatenate transformer embedding + readability features
-            fused = torch.cat([cls_embedding, readability_features], dim=1)
+            feat = self.feature_branch(readability_features)
         else:
-            # Fallback: pad with zeros if features not provided
-            batch_size = cls_embedding.size(0)
-            zero_features = torch.zeros(batch_size, self.feature_dim, device=cls_embedding.device)
-            fused = torch.cat([cls_embedding, zero_features], dim=1)
-        
-        # Classification head
-        x = self.dropout(F.relu(self.fusion_fc(fused)))
+            feat = torch.zeros(pooled.size(0), self.feature_branch[0].out_features, device=pooled.device)
+        fused = torch.cat([pooled, feat], dim=1)
+        x = self.dropout(F.gelu(self.fusion_fc(fused)))
         logits = self.classifier(x)
-        
-        # Return in format compatible with transformers
         output = type('Output', (), {'logits': logits})()
-        
         if labels is not None:
-            loss_fct = nn.CrossEntropyLoss()
-            output.loss = loss_fct(logits, labels)
-        
+            output.loss = nn.CrossEntropyLoss()(logits, labels)
         return output
+
+
+def enable_gradient_checkpointing_if_requested(model, use_feature_fusion=False):
+    """Enable gradient checkpointing based on env var for memory savings."""
+    if os.getenv('GRADIENT_CHECKPOINTING', '0') != '1':
+        return
+    try:
+        if use_feature_fusion:
+            if hasattr(model, 'transformer') and hasattr(model.transformer, 'gradient_checkpointing_enable'):
+                model.transformer.gradient_checkpointing_enable()
+                if hasattr(model.transformer, 'config') and hasattr(model.transformer.config, 'use_cache'):
+                    model.transformer.config.use_cache = False
+        else:
+            if hasattr(model, 'gradient_checkpointing_enable'):
+                model.gradient_checkpointing_enable()
+                if hasattr(model, 'config') and hasattr(model.config, 'use_cache'):
+                    model.config.use_cache = False
+        print('Gradient checkpointing enabled')
+    except Exception as e:
+        print(f'Warning: failed to enable gradient checkpointing: {e}')
+
+
+def freeze_first_n_layers(model, n_layers, use_feature_fusion=False):
+    """Freeze embeddings and first N encoder layers by name pattern."""
+    if n_layers <= 0:
+        return 0
+    frozen = 0
+    target = model.transformer if use_feature_fusion else model
+    import re as _re
+    pattern = _re.compile(r"encoder\.layer\.(\d+)\.")
+    for name, param in target.named_parameters():
+        if 'embeddings' in name:
+            param.requires_grad = False
+            frozen += param.numel()
+            continue
+        m = pattern.search(name)
+        if m:
+            try:
+                idx = int(m.group(1))
+                if idx < n_layers:
+                    param.requires_grad = False
+                    frozen += param.numel()
+            except Exception:
+                pass
+    if frozen > 0:
+        print(f'Frozen parameters in first {n_layers} encoder layers (incl. embeddings): {frozen} params')
+    return frozen
 
 
 class FocalLoss(nn.Module):
@@ -420,7 +478,7 @@ def main():
     learning_rate = float(os.getenv('LEARNING_RATE', '2e-5'))
     weight_decay = float(os.getenv('WEIGHT_DECAY', '0.01'))  # L2 regularization
     max_length = int(os.getenv('MAX_LENGTH', '320'))  # optimized for 4GB VRAM
-    label_smoothing = float(os.getenv('LABEL_SMOOTHING', '0.05'))  # OPTIMIZED: reduced from 0.15
+    label_smoothing = float(os.getenv('LABEL_SMOOTHING', '0.02'))  # further reduced for crisper class boundaries
     early_stopping_enabled = os.getenv('EARLY_STOPPING', '1') == '1'
     early_stopping_patience = int(os.getenv('EARLY_STOPPING_PATIENCE', '4'))  # OPTIMIZED: increased from 2
     save_best_metric = os.getenv('SAVE_BEST_METRIC', 'val_weighted_f1')  # OPTIMIZED: weighted F1 for imbalanced data
@@ -428,13 +486,15 @@ def main():
     use_focal_loss = os.getenv('USE_FOCAL_LOSS', '0') == '1'  # Focal Loss toggle
     focal_gamma = float(os.getenv('FOCAL_GAMMA', '2.0'))  # Focal Loss gamma parameter
     use_feature_fusion = os.getenv('USE_FEATURE_FUSION', '1') == '1'  # OPTIMIZED: Feature Fusion enabled
+    scheduler_type = os.getenv('SCHEDULER', 'linear').lower()  # 'linear' | 'cosine'
+    freeze_n_layers = int(os.getenv('FREEZE_N_LAYERS', '0'))
     
     print(f"Loading data from {processed_dir}")
     train_df, val_df, test_df = load_split_csv(processed_dir)
     
     # Prepare labels
     y_train_str = train_df['label'].astype(str).tolist()
-    y_train, label2id, id2label = encode_labels(y_train_str)
+    y_train, label2id, id2label = build_ordinal_mapping(y_train_str)
     
     # Save label mapping
     label_map_path = os.path.join(models_dir, 'label_mapping.json')
@@ -459,14 +519,10 @@ def main():
     
     # Create fusion or standard model based on configuration
     if use_feature_fusion:
-        print("Creating FusionModel with readability features (8-dim)")
-        base_model = AutoModelForSequenceClassification.from_pretrained(
-            model_name,
-            num_labels=num_labels,
-            id2label=id2label,
-            label2id=label2id
-        )
-        model = FusionModel(base_model, num_classes=num_labels, feature_dim=8)
+        print("Creating FusionModel with readability features (standardized + MLP)")
+        base_model = AutoModel.from_pretrained(model_name)
+        pooling_mode = os.getenv('POOLING', 'mean')
+        model = FusionModel(base_model, num_classes=num_labels, feature_dim=8, pooling=pooling_mode)
     else:
         model = AutoModelForSequenceClassification.from_pretrained(
             model_name,
@@ -475,6 +531,13 @@ def main():
             label2id=label2id
         )
     model.to(device)
+
+    # Optional: gradient checkpointing
+    enable_gradient_checkpointing_if_requested(model, use_feature_fusion)
+
+    # Optional: freeze first N layers for all epochs
+    if freeze_n_layers > 0:
+        freeze_first_n_layers(model, freeze_n_layers, use_feature_fusion)
 
     # Compute class weights for handling class imbalance
     class_weights_tensor = None
@@ -499,24 +562,25 @@ def main():
     
     # Prepare datasets
     X_train = train_df['text'].astype(str).tolist()
-    train_dataset = LegalTextDataset(X_train, y_train, tokenizer, max_length, use_features=use_feature_fusion)
+    train_dataset = LegalTextDataset(X_train, y_train, tokenizer, max_length, use_features=use_feature_fusion, compute_stats=True)
     num_workers = int(os.getenv('NUM_WORKERS', '2'))
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        pin_memory=device.type=='cuda',
-        num_workers=num_workers,
-        persistent_workers=num_workers > 0,
-        prefetch_factor=2 if num_workers > 0 else None
-    )
+    _dl_kwargs = {
+        'batch_size': batch_size,
+        'shuffle': True,
+        'pin_memory': device.type=='cuda',
+        'num_workers': num_workers,
+        'persistent_workers': num_workers > 0,
+    }
+    if num_workers > 0:
+        _dl_kwargs['prefetch_factor'] = 2
+    train_loader = DataLoader(train_dataset, **_dl_kwargs)
     
     val_loader = None
     if val_df is not None:
         y_val_str = val_df['label'].astype(str).tolist()
         y_val = [label2id[label] for label in y_val_str]
         X_val = val_df['text'].astype(str).tolist()
-        val_dataset = LegalTextDataset(X_val, y_val, tokenizer, max_length, use_features=use_feature_fusion)
+        val_dataset = LegalTextDataset(X_val, y_val, tokenizer, max_length, use_features=use_feature_fusion, stats=train_dataset.stats)
         val_loader = DataLoader(
             val_dataset,
             batch_size=batch_size,
@@ -531,11 +595,50 @@ def main():
     grad_acc_steps = int(os.getenv('GRAD_ACC_STEPS', '2'))  # gradient accumulation for effective larger batch
     effective_steps_per_epoch = math.ceil(len(train_loader) / max(1, grad_acc_steps))
     total_steps = effective_steps_per_epoch * epochs
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=int(0.1 * total_steps),
-        num_training_steps=total_steps
-    )
+    warmup_steps = int(0.1 * total_steps)
+    if scheduler_type == 'cosine':
+        scheduler = get_cosine_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps
+        )
+        print('Using cosine scheduler with warmup')
+    else:
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps
+        )
+        print('Using linear scheduler with warmup')
+    # Log key hyperparameters and environment metadata
+    run_metadata = {
+        'timestamp': datetime.utcnow().isoformat() + 'Z',
+        'model_name': model_name,
+        'device': str(device),
+        'epochs': epochs,
+        'batch_size': batch_size,
+        'grad_acc_steps': grad_acc_steps,
+        'learning_rate': learning_rate,
+        'weight_decay': weight_decay,
+        'max_length': max_length,
+        'label_smoothing': label_smoothing,
+        'early_stopping_enabled': early_stopping_enabled,
+        'early_stopping_patience': early_stopping_patience,
+        'save_best_metric': save_best_metric,
+        'use_class_weights': use_class_weights,
+        'use_focal_loss': use_focal_loss,
+        'focal_gamma': focal_gamma,
+        'use_feature_fusion': use_feature_fusion,
+        'scheduler': scheduler_type,
+        'freeze_n_layers': freeze_n_layers,
+        'num_workers': num_workers,
+        'seed': seed,
+    }
+    if device.type == 'cuda':
+        run_metadata['gpu_name'] = torch.cuda.get_device_name(0)
+        run_metadata['gpu_total_vram_gb'] = float(torch.cuda.get_device_properties(0).total_memory) / (1024**3)
+    with open(os.path.join(models_dir, 'run_metadata.json'), 'w', encoding='utf-8') as f:
+        json.dump(run_metadata, f, ensure_ascii=False, indent=2)
     
     # Training loop
     print(f"Starting training for {epochs} epochs...")
@@ -602,6 +705,9 @@ def main():
                     # For standard transformer: use save_pretrained
                     model.save_pretrained(best_model_path)
                     tokenizer.save_pretrained(best_model_path)
+                # Save run metadata alongside best checkpoint for reproducibility
+                with open(os.path.join(best_model_path, 'metadata.json'), 'w', encoding='utf-8') as f:
+                    json.dump(run_metadata, f, ensure_ascii=False, indent=2)
                 
                 print(f"Saved BEST model to {best_model_path} (metric {save_best_metric} = {current:.4f})")
             else:
@@ -644,7 +750,7 @@ def main():
         y_test_str = test_df['label'].astype(str).tolist()
         y_test = [label2id[label] for label in y_test_str]
         X_test = test_df['text'].astype(str).tolist()
-        test_dataset = LegalTextDataset(X_test, y_test, tokenizer, max_length, use_features=use_feature_fusion)
+        test_dataset = LegalTextDataset(X_test, y_test, tokenizer, max_length, use_features=use_feature_fusion, stats=train_dataset.stats)
         test_loader = DataLoader(
             test_dataset,
             batch_size=batch_size,
@@ -693,6 +799,47 @@ def main():
         with open(report_path, 'w', encoding='utf-8') as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
         print(f"Test report saved to {report_path}")
+
+        # Additional diagnostics: confusion matrix & per-class metrics plots
+        def plot_confusion_matrix(y_true, y_pred, labels, save_path):
+            cm = confusion_matrix(y_true, y_pred, labels=labels)
+            fig, ax = plt.subplots(figsize=(6,6))
+            im = ax.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+            ax.figure.colorbar(im, ax=ax)
+            ax.set(xticks=np.arange(len(labels)), yticks=np.arange(len(labels)), xticklabels=labels, yticklabels=labels, ylabel='True', xlabel='Predicted', title='Confusion Matrix (Test)')
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+            thresh = cm.max()/2 if cm.size else 0
+            for i in range(cm.shape[0]):
+                for j in range(cm.shape[1]):
+                    ax.text(j, i, format(cm[i,j], 'd'), ha='center', va='center', color='white' if cm[i,j] > thresh else 'black')
+            fig.tight_layout()
+            fig.savefig(save_path, dpi=150, bbox_inches='tight')
+            plt.close(fig)
+
+        def plot_classwise_metrics(report_dict, save_dir):
+            reserved = {"accuracy", "macro avg", "weighted avg", "mae", "rmse"}
+            keys = [k for k in report_dict.keys() if k not in reserved and isinstance(report_dict[k], dict)]
+            if not keys:
+                return
+            metrics = ['precision','recall','f1-score']
+            for metric in metrics:
+                values = [report_dict[k].get(metric,0) for k in keys]
+                fig, ax = plt.subplots(figsize=(max(8,len(values)*0.9),4))
+                ax.bar(keys, values, color='#5dade2')
+                ax.set_ylim([0,1])
+                ax.set_ylabel(metric.title())
+                ax.set_title(f'{metric.title()} by Class (Test)')
+                plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+                for i,v in enumerate(values):
+                    ax.text(i, v+0.01, f'{v:.3f}', ha='center', va='bottom', fontsize=9)
+                fig.tight_layout()
+                fig.savefig(os.path.join(save_dir, f'04-transformer_test_class_{metric}.png'), dpi=150, bbox_inches='tight')
+                plt.close(fig)
+
+        cm_save = os.path.join(reports_dir, '04-transformer_test_confusion_matrix.png')
+        plot_confusion_matrix(true_labels_str, pred_labels_str, sorted(set(true_labels_str)|set(pred_labels_str)), cm_save)
+        plot_classwise_metrics(report, reports_dir)
+        print("Saved test confusion matrix and per-class metric plots")
 
 
 if __name__ == '__main__':
