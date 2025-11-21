@@ -273,7 +273,7 @@ def main():
                     # Load feature stats
                     metadata_path = os.path.join(model_path, 'metadata.json')
                     if os.path.exists(metadata_path):
-                        with open(metadata_path, 'r') as f:
+                        with open(metadata_path, 'r', encoding='utf-8') as f:
                             metadata = json.load(f)
                 else:
                     raise ValueError("Checkpoint indicates fusion model but FusionModel class not available")
@@ -296,6 +296,9 @@ def main():
     test_df = pd.read_csv(test_path)
     X_test = test_df['text'].astype(str).tolist()
     y_test = test_df['label'].astype(str).tolist()
+    
+    # Expand numeric labels if mapping numeric-only
+    id2label = _expand_numeric_labels(id2label, y_test)
     
     batch_size = int(os.getenv('BATCH_SIZE', '8'))
     

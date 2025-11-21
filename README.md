@@ -1,7 +1,15 @@
-﻿# Legal Text Decoder
+﻿
+# Legal Text Decoder
 
-NLP rendszer jogi szövegek (ÁSZF/ÁFF) érthetőségének automatikus értékelésére (1-5 skála).
-Docker + PyTorch + GPU támogatás | Cross-platform
+**Magyar jogi szövegek (ÁSZF/ÁFF) érthetőségének automatikus értékelése (1-5 skála) modern NLP-vel.**
+
+**Főbb jellemzők:**
+- Transformer (HuBERT) + olvashatósági feature fusion (FusionModel)
+- Ordinal label mapping, CORAL loss támogatás
+- Robusztus értékelés (zaj, csonkítás), attention-alapú magyarázhatóság
+- REST API (FastAPI) + Web GUI (Streamlit)
+- **Minden fájlírás UTF-8 kódolással történik** (magyar karakterek támogatása)
+- Docker + GPU támogatás | Cross-platform
 
 ## 📚 Tartalomjegyzék
 
@@ -16,6 +24,7 @@ Docker + PyTorch + GPU támogatás | Cross-platform
 - Hibaelhárítás
 
 ---
+
 
 ## 🚀 Gyors Indítás
 
@@ -48,11 +57,13 @@ docker run --rm --gpus all \
   deeplearning_project-legal_text_decoder:1.0
 ```
 
-Megjegyzés: A futás a teljes 01→07 pipeline-t végigviszi. A baseline (03) opcionális.
+> **A pipeline minden fájlírása UTF-8 kódolással történik.**
+> A futás a teljes 01→07 pipeline-t végigviszi. A baseline (03) opcionális.
 
 ---
 
-## 🎯 Követelmény-Fájl Megfeleltetés
+
+## 🎯 Követelmény-Fájl Megfeleltetés (2024)
 
 | # | Outstanding Level Követelmény | Implementáció | Fájl |
 |---|-------------------------------|---------------|------|
@@ -61,13 +72,14 @@ Megjegyzés: A futás a teljes 01→07 pipeline-t végigviszi. A baseline (03) o
 | 3 | **Data cleansing and preparation** | Text cleaning, deduplication, stratified split | `02_data_cleansing_and_preparation.py` |
 | 4 | **Defining evaluation criteria** | Transformer (HuBERT) batch inference, metrics, confusion matrix | `05_defining_evaluation_criteria.py` |
 | 5 | **Baseline model (opcionális)** | TF-IDF + LogisticRegression | `03_baseline_model.py` |
-| 6 | **Incremental model development** | Transformer (HuBERT) fine-tuning | `04_incremental_model_development.py` |
+| 6 | **Incremental model development** | Transformer (HuBERT) fine-tuning, feature fusion, ordinal mapping, CORAL loss | `04_incremental_model_development.py` |
 | 7 | **Advanced evaluation** | Transformer-based Robustness + Explainability | `06_advanced_evaluation_robustness.py` <br> `07_advanced_evaluation_explainability.py` |
 | 8 | **ML as a service** | REST API + Web GUI | `src/api/app.py` <br> `src/frontend/app.py` |
 
 ---
 
-## 📋 Pipeline Lépések
+
+## 📋 Pipeline Lépések (2024)
 
 Névkonvenció a kimenetekre: minden mérési/ábra/riport fájl név elején lépés-prefix szerepel.
 Minta: `{lépés}-{rövid_név}_{típus}_{split}.{ext}`
@@ -132,8 +144,9 @@ Példák: `01-acquisition_raw_eda_statistics.txt`, `03-baseline_test_confusion_m
   (Accuracy, Weighted F1, MAE, RMSE vizuális összefoglaló)
 
 
+
 ### 4. 04_incremental_model_development.py
-**Cél:** Transformer (HuBERT) fine-tuning, feature fusion, ordinal label mapping, legjobb checkpoint mentése
+**Cél:** Transformer (HuBERT) fine-tuning, olvashatósági feature fusion (FusionModel), ordinal label mapping, CORAL loss, legjobb checkpoint mentése
 
 **Fő fejlesztések:**
 - Readability feature fusion (MLP branch, standardized)
@@ -142,6 +155,7 @@ Példák: `01-acquisition_raw_eda_statistics.txt`, `03-baseline_test_confusion_m
 - Ordinal label mapping (1–5 skála)
 - **CORAL ordinal regression loss támogatás** (opcionális, `USE_CORAL=1`)
 - Early stopping, checkpoint mentés
+- **Minden fájlírás UTF-8 kódolással**
 
 **Kimenetek:**
 - `output/models/best_transformer_model/` — csak a legjobb checkpoint
@@ -165,6 +179,7 @@ Példák: `01-acquisition_raw_eda_statistics.txt`, `03-baseline_test_confusion_m
 - Weighted F1 stabilan jobb
 - MAE/RMSE kismértékben csökkent
 - Tanulás stabilabb, nincs ugrás az epochok között
+- **Magyar karakterek mindenhol helyesen jelennek meg (UTF-8 encoding)**
 
 **CORAL loss (opcionális):**
 - További MAE/RMSE csökkenés, Macro F1 javulás várható
@@ -177,15 +192,17 @@ Példák: `01-acquisition_raw_eda_statistics.txt`, `03-baseline_test_confusion_m
 - `output/reports/05-evaluation_test_report.json`
 - `output/reports/05-evaluation_test_confusion_matrix.png`
 
+
 ### 6. 06_advanced_evaluation_robustness.py
-**Cél:** Transformer robustness tesztek (zaj, csonkítás, stb.)
+**Cél:** Transformer robustness tesztek (zaj, csonkítás, predikciók stabilitása, label mapping/decoding javítások)
 
 **Kimenetek:**
 - `output/reports/06-robustness_results.json`
 - `output/reports/06-robustness_comparison.png`
 
+
 ### 7. 07_advanced_evaluation_explainability.py
-**Cél:** Transformer attention-alapú magyarázhatóság, hibaanalízis, confusion pairs
+**Cél:** Transformer attention-alapú magyarázhatóság, hibaanalízis, confusion pairs, predikció dekódolás javítása
 
 **Kimenetek:**
 - `output/reports/07-explainability_attention_importance.json`
@@ -377,11 +394,12 @@ Böngészőben: [http://localhost:8501](http://localhost:8501)
 - Csökkentsd a `TRANSFORMER_BATCH_SIZE` értékét (pl. `4` helyett `2`)
 - Docker Desktop → Settings → Resources → növeld a memória limitet (min. 8GB ajánlott)
 
+
 ### Encoding hiba a CSV-kben
 
 **Probléma:** `UnicodeDecodeError`
 
-**Megoldás:** A scriptek már UTF-8-sig encoding-ot használnak. Ha lokálisan olvasod be, használj `encoding='utf-8-sig'` paramétert.
+**Megoldás:** Minden fájlírás a pipeline-ban már `encoding='utf-8'` paraméterrel történik. Ha lokálisan olvasod be, használj `encoding='utf-8-sig'` paramétert.
 
 
 ### Lassú futás CPU-n
@@ -392,6 +410,7 @@ A Transformer fine-tuning CPU-n 6+ óra is lehet. A baseline modell (~5 perc) m�
 
 ---
 
+
 ## 📌 Megjegyzések
 
 - A pipeline szekvenciálisan fut a `run.sh` szerint (01→07), baseline opcionális.
@@ -399,8 +418,10 @@ A Transformer fine-tuning CPU-n 6+ óra is lehet. A baseline modell (~5 perc) m�
 - Az advanced statisztikák (olvashatóság, diverzitás, TF-IDF, korreláció) magyar jogi szövegekre optimalizáltak.
 - A deduplikáció és címke-szűrés csak EDA-célú; a `raw_dataset.csv` változatlan marad.
 - 05–07 minden értékelést a transformer modellel végez (batch inference, robustness, explainability).
+- **Minden fájlírás és olvasás explicit UTF-8 encodinggal történik a magyar karakterek miatt.**
 
 ---
+
 
 ## 📄 Licenc
 

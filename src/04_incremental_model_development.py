@@ -794,7 +794,7 @@ def main():
                     torch.save(checkpoint, os.path.join(best_model_path, 'pytorch_model.bin'))
                     tokenizer.save_pretrained(best_model_path)
                     # Save config for reference
-                    with open(os.path.join(best_model_path, 'fusion_config.json'), 'w') as f:
+                    with open(os.path.join(best_model_path, 'fusion_config.json'), 'w', encoding='utf-8') as f:
                         json.dump({'num_classes': num_labels, 'feature_dim': 8, 'hidden_dim': 256, 'dropout': 0.3}, f)
                 else:
                     # For standard transformer: use save_pretrained
