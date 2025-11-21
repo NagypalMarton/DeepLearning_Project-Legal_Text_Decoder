@@ -1,25 +1,57 @@
 import os
 import json
 from pathlib import Path
+import re
 
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, AutoModel
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
 import sys
+import textstat
+
+# Import helper functions from incremental development script
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from importlib import import_module
+    inc_dev = import_module('04_incremental_model_development')
+    FusionModel = inc_dev.FusionModel
+    coral_predict = inc_dev.coral_predict
+    extract_readability_features = inc_dev.extract_readability_features
+    normalize_label = inc_dev.normalize_label
+except Exception as e:
+    print(f"Warning: Could not import from 04_incremental_model_development: {e}")
+    FusionModel = None
+    coral_predict = None
+    extract_readability_features = None
+    normalize_label = None
 
 
 class TransformerDataset(Dataset):
-    """Dataset for transformer inference."""
-    def __init__(self, texts, tokenizer, max_length=384):
+    """Dataset for transformer inference with optional readability features."""
+    def __init__(self, texts, tokenizer, max_length=384, use_features=False, stats=None):
         self.texts = texts
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.use_features = use_features
+        self._precomputed_features = None
+        
+        if self.use_features and extract_readability_features is not None:
+            raw_feats = [extract_readability_features(str(t)).numpy() for t in self.texts]
+            if stats:
+                mean = np.array(stats['mean'])
+                std = np.array(stats['std'])
+                norm_feats = (np.stack(raw_feats) - mean) / std
+                self._precomputed_features = torch.tensor(norm_feats, dtype=torch.float32)
+            else:
+                self._precomputed_features = torch.stack([extract_readability_features(str(t)) for t in self.texts])
     
     def __len__(self):
         return len(self.texts)
@@ -34,16 +66,19 @@ class TransformerDataset(Dataset):
             truncation=True,
             return_tensors='pt'
         )
-        return {
+        item = {
             'input_ids': encoding['input_ids'].flatten(),
             'attention_mask': encoding['attention_mask'].flatten(),
             'text': text
         }
+        if self.use_features and self._precomputed_features is not None:
+            item['readability_features'] = self._precomputed_features[idx]
+        return item
 
 
-def predict_with_transformer(model, tokenizer, texts, device, batch_size=8, id2label=None, return_probs=False):
+def predict_with_transformer(model, tokenizer, texts, device, batch_size=8, id2label=None, return_probs=False, use_fusion=False, use_coral=False, stats=None):
     """Run batch inference with transformer model."""
-    dataset = TransformerDataset(texts, tokenizer, max_length=384)
+    dataset = TransformerDataset(texts, tokenizer, max_length=384, use_features=use_fusion, stats=stats)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     
     predictions = []
@@ -55,10 +90,21 @@ def predict_with_transformer(model, tokenizer, texts, device, batch_size=8, id2l
         for batch in tqdm(dataloader, desc="Predicting", disable=disable_tqdm):
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
+            readability_features = batch.get('readability_features')
+            if readability_features is not None:
+                readability_features = readability_features.to(device)
             
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            if use_fusion:
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask, readability_features=readability_features)
+            else:
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            
             logits = outputs.logits
-            preds = torch.argmax(logits, dim=1)
+            
+            if use_coral and coral_predict is not None:
+                preds = coral_predict(logits)
+            else:
+                preds = torch.argmax(logits, dim=1)
             
             if return_probs:
                 probs = torch.softmax(logits, dim=1)
@@ -74,7 +120,7 @@ def predict_with_transformer(model, tokenizer, texts, device, batch_size=8, id2l
     return predictions
 
 
-def get_attention_based_importance(model, tokenizer, texts, labels, device, n_examples=5):
+def get_attention_based_importance(model, tokenizer, texts, labels, device, n_examples=5, use_fusion=False, use_coral=False, stats=None):
     """Extract attention-based token importance for sample texts.
     
     Note: This is a simplified version. Full attention visualization would require
@@ -94,16 +140,48 @@ def get_attention_based_importance(model, tokenizer, texts, labels, device, n_ex
         )
         
         input_ids = encoding['input_ids'].to(device)
-        attention_mask = encoding['attention_mask'].to(device)
+        attention_mask_tensor = encoding['attention_mask'].to(device)
+        
+        # Prepare readability features if fusion
+        readability_features = None
+        if use_fusion and extract_readability_features is not None:
+            feat = extract_readability_features(text).unsqueeze(0)
+            if stats:
+                mean = torch.tensor(stats['mean'], dtype=torch.float32)
+                std = torch.tensor(stats['std'], dtype=torch.float32)
+                feat = (feat - mean) / std
+            readability_features = feat.to(device)
         
         with torch.no_grad():
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, output_attentions=True)
-            logits = outputs.logits
-            attentions = outputs.attentions  # tuple of attention weights per layer
+            # Extract attention from the transformer backbone
+            if use_fusion:
+                # For FusionModel, get attentions from model.transformer
+                transformer_outputs = model.transformer(input_ids=input_ids, attention_mask=attention_mask_tensor, output_attentions=True, return_dict=True)
+                attentions = transformer_outputs.attentions
+                hidden = transformer_outputs.last_hidden_state
+                pooled = model._pool(hidden, attention_mask_tensor)
+                if readability_features is not None:
+                    feat_out = model.feature_branch(readability_features)
+                else:
+                    feat_out = torch.zeros(pooled.size(0), 32, device=pooled.device)
+                fused = torch.cat([pooled, feat_out], dim=1)
+                x = model.dropout(F.gelu(model.fusion_fc(fused)))
+                if use_coral:
+                    logits = model.coral_head(x)
+                else:
+                    logits = model.classifier(x)
+            else:
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask_tensor, output_attentions=True)
+                logits = outputs.logits
+                attentions = outputs.attentions  # tuple of attention weights per layer
             
             # Get prediction
-            pred_class = torch.argmax(logits, dim=1).item()
-            probs = torch.softmax(logits, dim=1)[0]
+            if use_coral and coral_predict is not None:
+                pred_class = int(coral_predict(logits)[0])
+                probs = torch.sigmoid(logits)[0]  # CORAL uses sigmoid per threshold
+            else:
+                pred_class = torch.argmax(logits, dim=1).item()
+                probs = torch.softmax(logits, dim=1)[0]
             
             # Average attention across all layers and heads
             avg_attention = torch.stack([att.mean(dim=1) for att in attentions]).mean(dim=0)[0]
@@ -223,15 +301,33 @@ def main():
         print(f"Transformer model not found at {model_path}. Train the transformer first.")
         return
     
-    # Load label mapping
-    label_map_path = os.path.join(models_dir, 'label_mapping.json')
-    if not os.path.exists(label_map_path):
-        print(f"Label mapping not found at {label_map_path}.")
+    # Load label mapping with fallback + expansion
+    label_map_path_generic = os.path.join(models_dir, 'label_mapping.json')
+    label_map_path_baseline = os.path.join(models_dir, 'baseline_label_mapping.json')
+    if os.path.exists(label_map_path_generic):
+        with open(label_map_path_generic, 'r', encoding='utf-8') as f:
+            label_mapping = json.load(f)
+    elif os.path.exists(label_map_path_baseline):
+        with open(label_map_path_baseline, 'r', encoding='utf-8') as f:
+            label_mapping = json.load(f)
+    else:
+        print(f"No label mapping file found (searched both generic and baseline).")
         return
+    id2label = {int(k): v for k, v in label_mapping['id2label'].items()}
     
-    with open(label_map_path, 'r', encoding='utf-8') as f:
-        label_mapping = json.load(f)
-        id2label = {int(k): v for k, v in label_mapping['id2label'].items()}
+    def _expand_numeric_labels(id2label_local, sample_labels):
+        num_to_full = {}
+        for lbl in sample_labels:
+            m = re.match(r'^([1-5])', str(lbl).strip())
+            if m:
+                n = m.group(1)
+                if n not in num_to_full:
+                    num_to_full[n] = lbl
+        for k in list(id2label_local.keys()):
+            v = id2label_local[k]
+            if re.fullmatch(r'[1-5]', str(v)) and v in num_to_full:
+                id2label_local[k] = num_to_full[v]
+        return id2label_local
     
     # Setup device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -240,8 +336,44 @@ def main():
     # Load model and tokenizer
     print(f"Loading transformer model from {model_path}...")
     tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForSequenceClassification.from_pretrained(model_path)
-    model.to(device)
+    
+    # Check if this is a FusionModel checkpoint
+    checkpoint_path = os.path.join(model_path, 'pytorch_model.bin')
+    use_fusion = False
+    use_coral = False
+    stats = None
+    
+    if os.path.exists(checkpoint_path) and FusionModel is not None:
+        try:
+            checkpoint = torch.load(checkpoint_path, map_location=device)
+            if isinstance(checkpoint, dict) and 'use_feature_fusion' in checkpoint:
+                use_fusion = checkpoint.get('use_feature_fusion', False)
+                use_coral = checkpoint.get('use_coral', False)
+                num_labels = checkpoint.get('num_labels', len(id2label))
+                
+                if use_fusion:
+                    print(f"Loading FusionModel (CORAL={use_coral})...")
+                    model_name = os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc')
+                    base_model = AutoModel.from_pretrained(model_name)
+                    model = FusionModel(base_model, num_classes=num_labels, use_coral=use_coral)
+                    model.load_state_dict(checkpoint['model_state_dict'])
+                    model.to(device)
+                    
+                    # Load feature stats
+                    metadata_path = os.path.join(model_path, 'metadata.json')
+                    if os.path.exists(metadata_path):
+                        with open(metadata_path, 'r') as f:
+                            metadata = json.load(f)
+                else:
+                    raise ValueError("Checkpoint indicates fusion model but FusionModel class not available")
+        except Exception as e:
+            print(f"Could not load as FusionModel: {e}, falling back to standard model")
+            use_fusion = False
+    
+    if not use_fusion:
+        model = AutoModelForSequenceClassification.from_pretrained(model_path)
+        model.to(device)
+    
     model.eval()
     
     # Load test data
@@ -260,12 +392,12 @@ def main():
     
     # Get predictions for all test samples
     print("Running predictions on test set...")
-    y_pred = predict_with_transformer(model, tokenizer, X_test, device, batch_size, id2label)
+    y_pred = predict_with_transformer(model, tokenizer, X_test, device, batch_size, id2label, use_fusion=use_fusion, use_coral=use_coral, stats=stats)
     
     # Attention-based importance for sample texts
     print("Extracting attention-based token importance...")
     try:
-        attention_results = get_attention_based_importance(model, tokenizer, X_test, y_test, device, n_examples=10)
+        attention_results = get_attention_based_importance(model, tokenizer, X_test, y_test, device, n_examples=10, use_fusion=use_fusion, use_coral=use_coral, stats=stats)
         
         attention_path = os.path.join(explainability_dir, '07-explainability_attention_importance.json')
         with open(attention_path, 'w', encoding='utf-8') as f:

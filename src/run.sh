@@ -43,9 +43,9 @@ scripts=(
     "02_data_cleansing_and_preparation.py"
     "03_baseline_model.py"
     "04_incremental_model_development.py"
-    #"05_defining_evaluation_criteria.py"
-    #"06_advanced_evaluation_robustness.py"
-    #"07_advanced_evaluation_explainability.py"
+    "05_defining_evaluation_criteria.py"
+    "06_advanced_evaluation_robustness.py"
+    "07_advanced_evaluation_explainability.py"
 )
 
 log "Found ${#scripts[@]} Python script(s) to execute"

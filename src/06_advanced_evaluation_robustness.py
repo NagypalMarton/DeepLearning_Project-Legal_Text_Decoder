@@ -1,18 +1,38 @@
 import os
 import json
 from pathlib import Path
+import re
 
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, AutoModel
 from sklearn.metrics import classification_report, accuracy_score, f1_score
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
 import sys
+import textstat
+
+# Import helper functions from incremental development script
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from importlib import import_module
+    inc_dev = import_module('04_incremental_model_development')
+    FusionModel = inc_dev.FusionModel
+    coral_predict = inc_dev.coral_predict
+    extract_readability_features = inc_dev.extract_readability_features
+    normalize_label = inc_dev.normalize_label
+except Exception as e:
+    print(f"Warning: Could not import from 04_incremental_model_development: {e}")
+    FusionModel = None
+    coral_predict = None
+    extract_readability_features = None
+    normalize_label = None
 
 
 def add_noise_to_text(text, noise_level=0.1):
@@ -48,11 +68,23 @@ def truncate_text(text, ratio=0.5):
 
 
 class TransformerDataset(Dataset):
-    """Dataset for transformer inference."""
-    def __init__(self, texts, tokenizer, max_length=384):
+    """Dataset for transformer inference with optional readability features."""
+    def __init__(self, texts, tokenizer, max_length=384, use_features=False, stats=None):
         self.texts = texts
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.use_features = use_features
+        self._precomputed_features = None
+        
+        if self.use_features and extract_readability_features is not None:
+            raw_feats = [extract_readability_features(str(t)).numpy() for t in self.texts]
+            if stats:
+                mean = np.array(stats['mean'])
+                std = np.array(stats['std'])
+                norm_feats = (np.stack(raw_feats) - mean) / std
+                self._precomputed_features = torch.tensor(norm_feats, dtype=torch.float32)
+            else:
+                self._precomputed_features = torch.stack([extract_readability_features(str(t)) for t in self.texts])
     
     def __len__(self):
         return len(self.texts)
@@ -67,15 +99,18 @@ class TransformerDataset(Dataset):
             truncation=True,
             return_tensors='pt'
         )
-        return {
+        item = {
             'input_ids': encoding['input_ids'].flatten(),
             'attention_mask': encoding['attention_mask'].flatten()
         }
+        if self.use_features and self._precomputed_features is not None:
+            item['readability_features'] = self._precomputed_features[idx]
+        return item
 
 
-def predict_with_transformer(model, tokenizer, texts, device, batch_size=8, id2label=None):
+def predict_with_transformer(model, tokenizer, texts, device, batch_size=8, id2label=None, use_fusion=False, use_coral=False, stats=None):
     """Run batch inference with transformer model."""
-    dataset = TransformerDataset(texts, tokenizer, max_length=384)
+    dataset = TransformerDataset(texts, tokenizer, max_length=384, use_features=use_fusion, stats=stats)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     
     predictions = []
@@ -86,10 +121,21 @@ def predict_with_transformer(model, tokenizer, texts, device, batch_size=8, id2l
         for batch in tqdm(dataloader, desc="Predicting", disable=disable_tqdm, leave=False):
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
+            readability_features = batch.get('readability_features')
+            if readability_features is not None:
+                readability_features = readability_features.to(device)
             
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            if use_fusion:
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask, readability_features=readability_features)
+            else:
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            
             logits = outputs.logits
-            preds = torch.argmax(logits, dim=1)
+            
+            if use_coral and coral_predict is not None:
+                preds = coral_predict(logits)
+            else:
+                preds = torch.argmax(logits, dim=1)
             
             if id2label:
                 predictions.extend([id2label[int(p)] for p in preds.cpu().numpy()])
@@ -99,10 +145,10 @@ def predict_with_transformer(model, tokenizer, texts, device, batch_size=8, id2l
     return predictions
 
 
-def test_robustness(model, tokenizer, X_test, y_test, device, test_name, transformation_func, transformation_params, id2label, batch_size=8):
+def test_robustness(model, tokenizer, X_test, y_test, device, test_name, transformation_func, transformation_params, id2label, batch_size=8, use_fusion=False, use_coral=False, stats=None):
     """Test model robustness with a specific text transformation."""
     X_transformed = [transformation_func(text, **transformation_params) for text in X_test]
-    y_pred = predict_with_transformer(model, tokenizer, X_transformed, device, batch_size, id2label)
+    y_pred = predict_with_transformer(model, tokenizer, X_transformed, device, batch_size, id2label, use_fusion, use_coral, stats)
     
     accuracy = accuracy_score(y_test, y_pred)
     labels = sorted(list(set(y_test) | set(y_pred)))
@@ -166,15 +212,33 @@ def main():
         print(f"Transformer model not found at {model_path}. Train the transformer first.")
         return
     
-    # Load label mapping
-    label_map_path = os.path.join(models_dir, 'label_mapping.json')
-    if not os.path.exists(label_map_path):
-        print(f"Label mapping not found at {label_map_path}.")
+    # Load label mapping with fallback + expansion
+    label_map_path_generic = os.path.join(models_dir, 'label_mapping.json')
+    label_map_path_baseline = os.path.join(models_dir, 'baseline_label_mapping.json')
+    if os.path.exists(label_map_path_generic):
+        with open(label_map_path_generic, 'r', encoding='utf-8') as f:
+            label_mapping = json.load(f)
+    elif os.path.exists(label_map_path_baseline):
+        with open(label_map_path_baseline, 'r', encoding='utf-8') as f:
+            label_mapping = json.load(f)
+    else:
+        print(f"No label mapping file found (searched both generic and baseline).")
         return
+    id2label = {int(k): v for k, v in label_mapping['id2label'].items()}
     
-    with open(label_map_path, 'r', encoding='utf-8') as f:
-        label_mapping = json.load(f)
-        id2label = {int(k): v for k, v in label_mapping['id2label'].items()}
+    def _expand_numeric_labels(id2label_local, sample_labels):
+        num_to_full = {}
+        for lbl in sample_labels:
+            m = re.match(r'^([1-5])', str(lbl).strip())
+            if m:
+                n = m.group(1)
+                if n not in num_to_full:
+                    num_to_full[n] = lbl
+        for k in list(id2label_local.keys()):
+            v = id2label_local[k]
+            if re.fullmatch(r'[1-5]', str(v)) and v in num_to_full:
+                id2label_local[k] = num_to_full[v]
+        return id2label_local
     
     # Setup device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -183,8 +247,44 @@ def main():
     # Load model and tokenizer
     print(f"Loading transformer model from {model_path}...")
     tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForSequenceClassification.from_pretrained(model_path)
-    model.to(device)
+    
+    # Check if this is a FusionModel checkpoint
+    checkpoint_path = os.path.join(model_path, 'pytorch_model.bin')
+    use_fusion = False
+    use_coral = False
+    stats = None
+    
+    if os.path.exists(checkpoint_path) and FusionModel is not None:
+        try:
+            checkpoint = torch.load(checkpoint_path, map_location=device)
+            if isinstance(checkpoint, dict) and 'use_feature_fusion' in checkpoint:
+                use_fusion = checkpoint.get('use_feature_fusion', False)
+                use_coral = checkpoint.get('use_coral', False)
+                num_labels = checkpoint.get('num_labels', len(id2label))
+                
+                if use_fusion:
+                    print(f"Loading FusionModel (CORAL={use_coral})...")
+                    model_name = os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc')
+                    base_model = AutoModel.from_pretrained(model_name)
+                    model = FusionModel(base_model, num_classes=num_labels, use_coral=use_coral)
+                    model.load_state_dict(checkpoint['model_state_dict'])
+                    model.to(device)
+                    
+                    # Load feature stats
+                    metadata_path = os.path.join(model_path, 'metadata.json')
+                    if os.path.exists(metadata_path):
+                        with open(metadata_path, 'r') as f:
+                            metadata = json.load(f)
+                else:
+                    raise ValueError("Checkpoint indicates fusion model but FusionModel class not available")
+        except Exception as e:
+            print(f"Could not load as FusionModel: {e}, falling back to standard model")
+            use_fusion = False
+    
+    if not use_fusion:
+        model = AutoModelForSequenceClassification.from_pretrained(model_path)
+        model.to(device)
+    
     model.eval()
     
     # Load test data
@@ -249,7 +349,10 @@ def main():
             test['func'],
             test['params'],
             id2label,
-            batch_size
+            batch_size,
+            use_fusion,
+            use_coral,
+            stats
         )
         results.append(result)
         print(f"  Accuracy: {result['accuracy']:.4f}, Macro-F1: {result['macro_f1']:.4f}, Weighted-F1: {result['weighted_f1']:.4f}")

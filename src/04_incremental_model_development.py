@@ -560,13 +560,13 @@ def main():
     # Hyperparameters
     model_name = os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc')  # Hungarian BERT
     batch_size = int(os.getenv('BATCH_SIZE', '8'))  # increased default; still safe for 4GB VRAM
-    epochs = int(os.getenv('EPOCHS', '10'))  # increased default epochs for better convergence
+    epochs = int(os.getenv('EPOCHS', '15'))  # increased default epochs for better convergence
     learning_rate = float(os.getenv('LEARNING_RATE', '1.5e-5'))
     weight_decay = float(os.getenv('WEIGHT_DECAY', '0.01'))  # L2 regularization
     max_length = int(os.getenv('MAX_LENGTH', '320'))  # optimized for 4GB VRAM
     label_smoothing = float(os.getenv('LABEL_SMOOTHING', '0.02'))  # further reduced for crisper class boundaries
     early_stopping_enabled = os.getenv('EARLY_STOPPING', '1') == '1'
-    early_stopping_patience = int(os.getenv('EARLY_STOPPING_PATIENCE', '4'))  # OPTIMIZED: increased from 2
+    early_stopping_patience = int(os.getenv('EARLY_STOPPING_PATIENCE', '3'))  # OPTIMIZED: balanced for faster convergence detection
     save_best_metric = os.getenv('SAVE_BEST_METRIC', 'val_weighted_f1')  # OPTIMIZED: weighted F1 for imbalanced data
     use_class_weights = os.getenv('USE_CLASS_WEIGHTS', '1') == '1'  # sqrt-scaled class weights
     use_focal_loss = os.getenv('USE_FOCAL_LOSS', '0') == '1'  # Focal Loss toggle
