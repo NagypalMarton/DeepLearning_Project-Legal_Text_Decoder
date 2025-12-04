@@ -28,8 +28,19 @@
 
 ## 🚀 Gyors Indítás
 
-### Automatikus platform detektálás
+### Összefoglaló táblázat
 
+| Mit szeretnél? | Gyors módszer | Docker Compose | Mit kapsz? |
+|---------------|---------------|----------------|------------|
+| **Csak training** | `.\docker-run.ps1` | - | Pipeline (01-07) |
+| **Training + API** | `.\docker-run-with-api.ps1` | `docker-compose up training-with-api` | Pipeline + REST API (8000) |
+| **Training + API + GUI** ⭐ | `.\docker-run-full-stack.ps1` | `docker-compose up training-full-stack` | Pipeline + API (8000) + Frontend (8501) |
+| **Csak API (kész modellel)** | - | `docker-compose up api` | REST API (8000) |
+| **API + Frontend (kész modellel)** | - | `docker-compose up api frontend` | API (8000) + GUI (8501) |
+
+### 1. Csak Pipeline (alapértelmezett)
+
+**Automatikus platform detektálás:**
 ```bash
 # Windows PowerShell
 .\docker-run.ps1
@@ -38,8 +49,7 @@
 bash docker-run.sh
 ```
 
-### Manuális Docker futtatás
-
+**Manuális Docker futtatás:**
 ```bash
 # 1. Build
 docker build -t deeplearning_project-legal_text_decoder:1.0 .
@@ -55,6 +65,99 @@ docker run --rm --gpus all \
   -v "$(pwd)/attach_folders/data:/app/data" \
   -v "$(pwd)/attach_folders/output:/app/output" \
   deeplearning_project-legal_text_decoder:1.0
+```
+
+### 2. Pipeline + API indítás (egy lépésben) ⭐
+
+**Automatikus script (legegyszerűbb):**
+```bash
+# Windows PowerShell
+.\docker-run-with-api.ps1
+
+# Linux/macOS/Git Bash
+bash docker-run-with-api.sh
+```
+
+**Docker Compose módszer:**
+```bash
+docker-compose up training-with-api
+```
+
+**Manuális futtatás START_API_SERVICE változóval:**
+```bash
+# Windows PowerShell
+docker run --rm --gpus all `
+  -e START_API_SERVICE=1 `
+  -p 8000:8000 `
+  -v "${PWD}\attach_folders\data:/app/data" `
+  -v "${PWD}\attach_folders\output:/app/output" `
+  deeplearning_project-legal_text_decoder:1.0
+
+# Linux/macOS
+docker run --rm --gpus all \
+  -e START_API_SERVICE=1 \
+  -p 8000:8000 \
+  -v "$(pwd)/attach_folders/data:/app/data" \
+  -v "$(pwd)/attach_folders/output:/app/output" \
+  deeplearning_project-legal_text_decoder:1.0
+```
+
+Ezután az API elérhető: http://localhost:8000
+
+### 3. Pipeline + API + Frontend (teljes stack) ⭐ ÚJ
+
+**Automatikus script (legegyszerűbb):**
+```bash
+# Windows PowerShell
+.\docker-run-full-stack.ps1
+
+# Linux/macOS/Git Bash
+bash docker-run-full-stack.sh
+```
+
+**Docker Compose módszer:**
+```bash
+docker-compose up training-full-stack
+```
+
+**Manuális futtatás:**
+```bash
+# Windows PowerShell
+docker run --rm --gpus all `
+  -e START_API_SERVICE=1 `
+  -e START_FRONTEND_SERVICE=1 `
+  -e API_URL=http://localhost:8000 `
+  -p 8000:8000 `
+  -p 8501:8501 `
+  -v "${PWD}\attach_folders\data:/app/data" `
+  -v "${PWD}\attach_folders\output:/app/output" `
+  deeplearning_project-legal_text_decoder:1.0
+
+# Linux/macOS
+docker run --rm --gpus all \
+  -e START_API_SERVICE=1 \
+  -e START_FRONTEND_SERVICE=1 \
+  -e API_URL=http://localhost:8000 \
+  -p 8000:8000 \
+  -p 8501:8501 \
+  -v "$(pwd)/attach_folders/data:/app/data" \
+  -v "$(pwd)/attach_folders/output:/app/output" \
+  deeplearning_project-legal_text_decoder:1.0
+```
+
+Ezután elérhető:
+- **API**: http://localhost:8000
+- **Frontend GUI**: http://localhost:8501
+
+### 4. Csak API (már kész modellekkel)
+
+```bash
+# Docker Compose
+docker-compose up api
+
+# vagy manuálisan
+cd src
+python -m uvicorn api.app:app --host 0.0.0.0 --port 8000
 ```
 
 > **A pipeline minden fájlírása UTF-8 kódolással történik.**
@@ -74,7 +177,7 @@ docker run --rm --gpus all \
 | 5 | **Baseline model (opcionális)** | TF-IDF + LogisticRegression | `03_baseline_model.py` |
 | 6 | **Incremental model development** | Transformer (HuBERT) fine-tuning, feature fusion, ordinal mapping, CORAL loss | `04_incremental_model_development.py` |
 | 7 | **Advanced evaluation** | Transformer-based Robustness + Explainability | `06_advanced_evaluation_robustness.py` <br> `07_advanced_evaluation_explainability.py` |
-| 8 | **ML as a service** | REST API + Web GUI | `src/api/app.py` <br> `src/frontend/app.py` |
+| 8 | **ML as a service** | REST API + Web GUI + Pipeline Integration | `src/api/app.py` <br> `src/frontend/app.py` <br> `08_start_api_service.py` <br> `09_start_frontend_service.py` |
 
 ---
 
@@ -210,7 +313,43 @@ Példák: `01-acquisition_raw_eda_statistics.txt`, `03-baseline_test_confusion_m
 - `output/reports/07-explainability_misclassification_analysis.json`
 - `output/reports/07-explainability_top_confusion_pairs.png`
 
-> A `src/run.sh` sorban futtatja az összes `src/*.py` fájlt (01→07). Dockerben ez az alapértelmezett belépési pont. A baseline (03) opcionális; a fő pipeline a transformer modellt használja minden értékeléshez.
+### 8. 08_start_api_service.py (opcionális) ⭐
+
+**Cél:** API szerver indítása a pipeline befejezése után (FastAPI + uvicorn)
+
+**Aktiválás:**
+- Környezeti változó: `START_API_SERVICE=1`
+- Docker Compose: `docker-compose up training-with-api`
+
+**Funkciók:**
+- Automatikus modell ellenőrzés (transformer + baseline)
+- Konfigurálandó host és port (`API_HOST`, `API_PORT`)
+- REST API endpoint a modell predikciókhoz
+- Graceful shutdown (Ctrl+C)
+
+**Kimenetek:**
+- Indított API szerver: `http://0.0.0.0:8000` (vagy konfigurált port)
+- Logok a konzolban/log fájlban
+
+### 9. 09_start_frontend_service.py (opcionális) ⭐ ÚJ
+
+**Cél:** Streamlit frontend indítása a pipeline befejezése után
+
+**Aktiválás:**
+- Környezeti változó: `START_FRONTEND_SERVICE=1`
+- Docker Compose: `docker-compose up training-full-stack`
+
+**Funkciók:**
+- Webes GUI modell teszteléshez
+- Konfigurálandó host és port (`FRONTEND_HOST`, `FRONTEND_PORT`)
+- Automatikus API kapcsolat ellenőrzés
+- Interaktív szöveg értékelés
+
+**Kimenetek:**
+- Indított Frontend szerver: `http://0.0.0.0:8501` (vagy konfigurált port)
+- Logok a konzolban/log fájlban
+
+> A `src/run.sh` sorban futtatja az összes `src/*.py` fájlt (01→07, opcionálisan 08-09). Dockerben ez az alapértelmezett belépési pont. A baseline (03), API service (08) és Frontend service (09) opcionális; a fő pipeline a transformer modellt használja minden értékeléshez.
 
 ---
 
@@ -263,6 +402,17 @@ Fontos: ha több annotáció/eredmény van, jelenleg az első elem első válasz
 **Adatkezelés:**
 - `DATA_DIR` — bemeneti adat mappa (alap: `/app/data` Dockerben)
 - `OUTPUT_DIR` — kimeneti mappa (alap: `/app/output`)
+
+**API Service (08_start_api_service.py):**
+- `START_API_SERVICE` — API indítás a pipeline végén (alap: `0`, bekapcsolás: `1` vagy `true`)
+- `API_HOST` — API szerver host címe (alap: `0.0.0.0`)
+- `API_PORT` — API szerver portja (alap: `8000`)
+
+**Frontend Service (09_start_frontend_service.py) - ÚJ:**
+- `START_FRONTEND_SERVICE` — Frontend indítás a pipeline végén (alap: `0`, bekapcsolás: `1` vagy `true`)
+- `FRONTEND_HOST` — Frontend szerver host címe (alap: `0.0.0.0`)
+- `FRONTEND_PORT` — Frontend szerver portja (alap: `8501`)
+- `API_URL` — API endpoint címe a frontend számára (alap: `http://localhost:8000`)
 
 **Baseline (TF-IDF + LogisticRegression):**
 - `TFIDF_MAX_FEATURES` (alap: `20000`), `TFIDF_NGRAM_RANGE` (alap: `1,2`), `LOGREG_C` (alap: `1.0`)
@@ -332,14 +482,67 @@ Az összes mérési és vizuális kimenet lépés-prefixet kap az egyszerű viss
 
 ## 🌐 ML Service - API + GUI
 
-### REST API (FastAPI)
+### Opció 1: Pipeline részeként (automatikus indítás) ⭐
+
+**Csak API:**
+```bash
+# Docker Compose (ajánlott)
+docker-compose up training-with-api
+
+# vagy környezeti változóval
+export START_API_SERVICE=1  # Linux/macOS
+$env:START_API_SERVICE=1    # Windows PowerShell
+```
+
+**API + Frontend (teljes stack):**
+```bash
+# Automatikus script (legegyszerűbb)
+.\docker-run-full-stack.ps1  # Windows
+bash docker-run-full-stack.sh  # Linux/macOS
+
+# vagy Docker Compose
+docker-compose up training-full-stack
+
+# vagy környezeti változókkal
+export START_API_SERVICE=1  # Linux/macOS
+export START_FRONTEND_SERVICE=1
+$env:START_API_SERVICE=1    # Windows PowerShell
+$env:START_FRONTEND_SERVICE=1
+```
+
+Az API és Frontend automatikusan elindul a training befejezése után:
+- API: port 8000
+- Frontend: port 8501
+
+### Opció 2: Külön indítás (már kész modellekkel)
+
+**REST API (FastAPI):**
 
 ```bash
-# API indítása (port: 8000)
+# Docker Compose
+docker-compose up api
+
+# vagy manuálisan
 cd src
 python -m uvicorn api.app:app --host 0.0.0.0 --port 8000
 ```
 
+**Web GUI (Streamlit):**
+
+```bash
+# Docker Compose
+docker-compose up frontend
+
+# vagy manuálisan
+cd src
+streamlit run frontend/app.py
+```
+
+Böngészőben: 
+- API: [http://localhost:8000](http://localhost:8000)
+- GUI: [http://localhost:8501](http://localhost:8501)
+
+### API Használat
 
 **Endpoint:** `POST /predict`
 
@@ -360,18 +563,6 @@ python -m uvicorn api.app:app --host 0.0.0.0 --port 8000
 }
 ```
 
-
-### Web GUI (Streamlit)
-
-```bash
-# Frontend indítása (port: 8501)
-docker-compose up frontend
-# vagy
-cd src
-streamlit run frontend/app.py
-```
-
-Böngészőben: [http://localhost:8501](http://localhost:8501)
 
 ---
 

@@ -1,12 +1,97 @@
 # Docker Compose for ML Service (API + Frontend)
-# This is SEPARATE from the training pipeline
-# Use this AFTER training is complete to serve the models
+# 
+# Usage scenarios:
+# 1. Training only: docker run ... (default Dockerfile CMD)
+# 2. Training + API: docker-compose up training-with-api
+# 3. Training + API + Frontend: docker-compose up training-full-stack
+# 4. Only API (after training): docker-compose up api
+# 5. API + Frontend (after training): docker-compose up api frontend
+#
 # Cross-platform compatible: Windows, Linux, macOS
 
 version: '3.8'
 
 services:
-  # Backend API
+  # Training pipeline with API service
+  training-with-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: legal-text-decoder-training-api
+    command: bash src/run.sh
+    ports:
+      - "8000:8000"
+    volumes:
+      - type: bind
+        source: ./attach_folders/data
+        target: /app/data
+      - type: bind
+        source: ./attach_folders/output
+        target: /app/output
+    environment:
+      - DATA_DIR=/app/data
+      - OUTPUT_DIR=/app/output
+      - START_API_SERVICE=1
+      - API_PORT=8000
+      - API_HOST=0.0.0.0
+      - PYTHONUNBUFFERED=1
+      - PYTHONIOENCODING=utf-8
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+    networks:
+      - legal-text-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: "no"
+
+  # Training pipeline with full stack (API + Frontend) - NEW
+  training-full-stack:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: legal-text-decoder-training-full
+    command: bash src/run.sh
+    ports:
+      - "8000:8000"
+      - "8501:8501"
+    volumes:
+      - type: bind
+        source: ./attach_folders/data
+        target: /app/data
+      - type: bind
+        source: ./attach_folders/output
+        target: /app/output
+    environment:
+      - DATA_DIR=/app/data
+      - OUTPUT_DIR=/app/output
+      - START_API_SERVICE=1
+      - START_FRONTEND_SERVICE=1
+      - API_PORT=8000
+      - API_HOST=0.0.0.0
+      - FRONTEND_PORT=8501
+      - FRONTEND_HOST=0.0.0.0
+      - API_URL=http://localhost:8000
+      - PYTHONUNBUFFERED=1
+      - PYTHONIOENCODING=utf-8
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+    networks:
+      - legal-text-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: "no"
+
+  # Backend API (standalone, after training)
   api:
     build:
       context: .
@@ -18,7 +103,7 @@ services:
     volumes:
       # Platform-agnostic volume mounting
       - type: bind
-        source: ./output
+        source: ./attach_folders/output
         target: /app/output
         read_only: true
     environment:

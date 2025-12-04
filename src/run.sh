@@ -48,6 +48,20 @@ scripts=(
     "07_advanced_evaluation_explainability.py"
 )
 
+# Optional: Add API service as step 08 if START_API_SERVICE is set
+START_API_SERVICE="${START_API_SERVICE:-0}"
+if [ "$START_API_SERVICE" = "1" ] || [ "$START_API_SERVICE" = "true" ]; then
+    scripts+=("08_start_api_service.py")
+    log "API service will be started after training (START_API_SERVICE=$START_API_SERVICE)"
+fi
+
+# Optional: Add Frontend service as step 09 if START_FRONTEND_SERVICE is set
+START_FRONTEND_SERVICE="${START_FRONTEND_SERVICE:-0}"
+if [ "$START_FRONTEND_SERVICE" = "1" ] || [ "$START_FRONTEND_SERVICE" = "true" ]; then
+    scripts+=("09_start_frontend_service.py")
+    log "Frontend service will be started after training (START_FRONTEND_SERVICE=$START_FRONTEND_SERVICE)"
+fi
+
 log "Found ${#scripts[@]} Python script(s) to execute"
 
 for script in "${scripts[@]}"; do

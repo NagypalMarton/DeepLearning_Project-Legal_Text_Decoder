@@ -7,6 +7,9 @@ WORKDIR /app
 RUN mkdir -p /app/data /app/output
 ENV DATA_DIR=/app/data \
     OUTPUT_DIR=/app/output \
+    START_API_SERVICE=1 \
+    START_FRONTEND_SERVICE=1 \
+    API_URL=http://localhost:8000 \
     PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=utf-8 \
     LANG=C.UTF-8 \
