@@ -44,8 +44,7 @@ scripts=(
     "03_baseline_model.py"
     "04_incremental_model_development.py"
     "05_defining_evaluation_criteria.py"
-    "06_advanced_evaluation_robustness.py"
-    "07_advanced_evaluation_explainability.py"
+    "06_advanced_evaluation.py"
 )
 
 # Optional: Add API service as step 08 if START_API_SERVICE is set

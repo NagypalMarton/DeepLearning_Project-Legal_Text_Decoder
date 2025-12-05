@@ -1,5 +1,5 @@
 ﻿
-# Legal Text Decoder
+# Deep Learning Class (VITMMA19) - Legal Text Decoder
 
 **Magyar jogi szövegek (ÁSZF/ÁFF) érthetőségének automatikus értékelése (1-5 skála) modern NLP-vel.**
 
@@ -32,11 +32,11 @@
 
 | Mit szeretnél? | Gyors módszer | Docker Compose | Mit kapsz? |
 |---------------|---------------|----------------|------------|
-| **Csak training** | `.\docker-run.ps1` | - | Pipeline (01-07) |
-| **Training + API** | `.\docker-run-with-api.ps1` | `docker-compose up training-with-api` | Pipeline + REST API (8000) |
-| **Training + API + GUI** ⭐ | `.\docker-run-full-stack.ps1` | `docker-compose up training-full-stack` | Pipeline + API (8000) + Frontend (8501) |
-| **Csak API (kész modellel)** | - | `docker-compose up api` | REST API (8000) |
-| **API + Frontend (kész modellel)** | - | `docker-compose up api frontend` | API (8000) + GUI (8501) |
+| **Csak training** | `\.\docker-run.ps1` **vagy** egyparancsos `docker run` | nem szükséges | Pipeline (01-07) |
+| **Training + API** | `\.\docker-run-with-api.ps1` **vagy** egyparancsos `docker run` | opcionális | Pipeline + REST API (8000) |
+| **Training + API + GUI** ⭐ | `\.\docker-run-full-stack.ps1` **vagy** egyparancsos `docker run` | opcionális | Pipeline + API (8000) + Frontend (8501) |
+| **Csak API (kész modellel)** | `docker run` | opcionális | REST API (8000) |
+| **API + Frontend (kész modellel)** | `docker run` | opcionális | API (8000) + GUI (8501) |
 
 ### 1. Csak Pipeline (alapértelmezett)
 
@@ -49,22 +49,24 @@
 bash docker-run.sh
 ```
 
-**Manuális Docker futtatás:**
-```bash
+**Manuális Docker futtatás (compose nélkül):**
+```powershell
 # 1. Build
 docker build -t deeplearning_project-legal_text_decoder:1.0 .
 
-# 2. Futtatás (Windows PowerShell)
+# 2. Csak training (Windows PowerShell)
 docker run --rm --gpus all `
-  -v "${PWD}\attach_folders\data:/app/data" `
-  -v "${PWD}\attach_folders\output:/app/output" `
-  deeplearning_project-legal_text_decoder:1.0
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" `
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" `
+  deeplearning_project-legal_text_decoder:1.0 `
+  > training_log.txt 2>&1
 
-# 2. Futtatás (Linux/macOS)
+# 2b. Csak training (Linux/macOS)
 docker run --rm --gpus all \
   -v "$(pwd)/attach_folders/data:/app/data" \
   -v "$(pwd)/attach_folders/output:/app/output" \
-  deeplearning_project-legal_text_decoder:1.0
+  deeplearning_project-legal_text_decoder:1.0 \
+  > training_log.txt 2>&1
 ```
 
 ### 2. Pipeline + API indítás (egy lépésben) ⭐
@@ -83,23 +85,25 @@ bash docker-run-with-api.sh
 docker-compose up training-with-api
 ```
 
-**Manuális futtatás START_API_SERVICE változóval:**
-```bash
-# Windows PowerShell
+**Manuális futtatás (START_API_SERVICE=1, compose nélkül):**
+```powershell
+# Windows PowerShell – training + API
 docker run --rm --gpus all `
-  -e START_API_SERVICE=1 `
+  -e START_API_SERVICE=1 -e API_HOST=0.0.0.0 -e API_PORT=8000 `
   -p 8000:8000 `
-  -v "${PWD}\attach_folders\data:/app/data" `
-  -v "${PWD}\attach_folders\output:/app/output" `
-  deeplearning_project-legal_text_decoder:1.0
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" `
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" `
+  deeplearning_project-legal_text_decoder:1.0 `
+  > training_log.txt 2>&1
 
 # Linux/macOS
 docker run --rm --gpus all \
-  -e START_API_SERVICE=1 \
+  -e START_API_SERVICE=1 -e API_HOST=0.0.0.0 -e API_PORT=8000 \
   -p 8000:8000 \
   -v "$(pwd)/attach_folders/data:/app/data" \
   -v "$(pwd)/attach_folders/output:/app/output" \
-  deeplearning_project-legal_text_decoder:1.0
+  deeplearning_project-legal_text_decoder:1.0 \
+  > training_log.txt 2>&1
 ```
 
 Ezután az API elérhető: http://localhost:8000
@@ -115,34 +119,32 @@ Ezután az API elérhető: http://localhost:8000
 bash docker-run-full-stack.sh
 ```
 
-**Docker Compose módszer:**
+**Docker Compose módszer:** (opcionális, nem szükséges)
 ```bash
 docker-compose up training-full-stack
 ```
 
-**Manuális futtatás:**
-```bash
+**Manuális futtatás (compose nélkül, training + API + Frontend):**
+```powershell
 # Windows PowerShell
 docker run --rm --gpus all `
-  -e START_API_SERVICE=1 `
-  -e START_FRONTEND_SERVICE=1 `
-  -e API_URL=http://localhost:8000 `
-  -p 8000:8000 `
-  -p 8501:8501 `
-  -v "${PWD}\attach_folders\data:/app/data" `
-  -v "${PWD}\attach_folders\output:/app/output" `
-  deeplearning_project-legal_text_decoder:1.0
+  -e START_API_SERVICE=1 -e API_HOST=0.0.0.0 -e API_PORT=8000 `
+  -e START_FRONTEND_SERVICE=1 -e API_URL=http://localhost:8000 -e FRONTEND_HOST=0.0.0.0 -e FRONTEND_PORT=8501 `
+  -p 8000:8000 -p 8501:8501 `
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" `
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" `
+  deeplearning_project-legal_text_decoder:1.0 `
+  > training_log.txt 2>&1
 
 # Linux/macOS
 docker run --rm --gpus all \
-  -e START_API_SERVICE=1 \
-  -e START_FRONTEND_SERVICE=1 \
-  -e API_URL=http://localhost:8000 \
-  -p 8000:8000 \
-  -p 8501:8501 \
+  -e START_API_SERVICE=1 -e API_HOST=0.0.0.0 -e API_PORT=8000 \
+  -e START_FRONTEND_SERVICE=1 -e API_URL=http://localhost:8000 -e FRONTEND_HOST=0.0.0.0 -e FRONTEND_PORT=8501 \
+  -p 8000:8000 -p 8501:8501 \
   -v "$(pwd)/attach_folders/data:/app/data" \
   -v "$(pwd)/attach_folders/output:/app/output" \
-  deeplearning_project-legal_text_decoder:1.0
+  deeplearning_project-legal_text_decoder:1.0 \
+  > training_log.txt 2>&1
 ```
 
 Ezután elérhető:
@@ -161,7 +163,7 @@ python -m uvicorn api.app:app --host 0.0.0.0 --port 8000
 ```
 
 > **A pipeline minden fájlírása UTF-8 kódolással történik.**
-> A futás a teljes 01→07 pipeline-t végigviszi. A baseline (03) opcionális.
+> A futás a teljes 01→05 + advanced (robustness + explainability) pipeline-t végigviszi. A baseline (03) opcionális.
 
 ---
 
@@ -176,7 +178,7 @@ python -m uvicorn api.app:app --host 0.0.0.0 --port 8000
 | 4 | **Defining evaluation criteria** | Transformer (HuBERT) batch inference, metrics, confusion matrix | `05_defining_evaluation_criteria.py` |
 | 5 | **Baseline model (opcionális)** | TF-IDF + LogisticRegression | `03_baseline_model.py` |
 | 6 | **Incremental model development** | Transformer (HuBERT) fine-tuning, feature fusion, ordinal mapping, CORAL loss | `04_incremental_model_development.py` |
-| 7 | **Advanced evaluation** | Transformer-based Robustness + Explainability | `06_advanced_evaluation_robustness.py` <br> `07_advanced_evaluation_explainability.py` |
+| 7 | **Advanced evaluation** | Transformer-based Robustness + Explainability | `advanced_evaluation.py` (robustness + explainability egyben) |
 | 8 | **ML as a service** | REST API + Web GUI + Pipeline Integration | `src/api/app.py` <br> `src/frontend/app.py` <br> `08_start_api_service.py` <br> `09_start_frontend_service.py` |
 
 ---
@@ -186,7 +188,7 @@ python -m uvicorn api.app:app --host 0.0.0.0 --port 8000
 
 Névkonvenció a kimenetekre: minden mérési/ábra/riport fájl név elején lépés-prefix szerepel.
 Minta: `{lépés}-{rövid_név}_{típus}_{split}.{ext}`
-Példák: `01-acquisition_raw_eda_statistics.txt`, `03-baseline_test_confusion_matrix.png`, `06-robustness_results.json`.
+Példák: `01-acquisition_raw_eda_statistics.txt`, `03-baseline_test_confusion_matrix.png`, `advanced/robustness/robustness_results.json`.
 
 ### 1. 01_data_acquisition_and_analysis.py
 **Cél:** Nyers adatok betöltése és átfogó feltáró elemzés (EDA)
@@ -296,22 +298,20 @@ Példák: `01-acquisition_raw_eda_statistics.txt`, `03-baseline_test_confusion_m
 - `output/reports/05-evaluation_test_confusion_matrix.png`
 
 
-### 6. 06_advanced_evaluation_robustness.py
-**Cél:** Transformer robustness tesztek (zaj, csonkítás, predikciók stabilitása, label mapping/decoding javítások)
+### 6. advanced_evaluation.py
+**Cél:** Robusztusság (zaj, csonkítás) és attention-alapú magyarázhatóság egy scriptben, közös inferencia réteggel.
 
 **Kimenetek:**
-- `output/reports/06-robustness_results.json`
-- `output/reports/06-robustness_comparison.png`
+- `output/reports/advanced/robustness/robustness_results.json`
+- `output/reports/advanced/robustness/robustness_accuracy.png`
+- `output/reports/advanced/explainability/attention_importance.json`
+- `output/reports/advanced/explainability/attention_summary.json`
+- `output/reports/advanced/explainability/misclassification_analysis.json`
+- `output/reports/advanced/explainability/confusion_pairs.png`
 
 
-### 7. 07_advanced_evaluation_explainability.py
-**Cél:** Transformer attention-alapú magyarázhatóság, hibaanalízis, confusion pairs, predikció dekódolás javítása
-
-**Kimenetek:**
-- `output/reports/07-explainability_attention_importance.json`
-- `output/reports/07-explainability_attention_summary.json`
-- `output/reports/07-explainability_misclassification_analysis.json`
-- `output/reports/07-explainability_top_confusion_pairs.png`
+### 7. (deprecated) 06/07 advanced scripts
+Az előző két külön script (`06_advanced_evaluation_robustness.py`, `07_advanced_evaluation_explainability.py`) helyett használd az `advanced_evaluation.py` fájlt.
 
 ### 8. 08_start_api_service.py (opcionális) ⭐
 
@@ -468,15 +468,13 @@ Az összes mérési és vizuális kimenet lépés-prefixet kap az egyszerű viss
 - `05-evaluation_test_report.json` — részletes metrikák (Accuracy, Macro/Weighted F1, MAE, RMSE)
 - `05-evaluation_test_confusion_matrix.png` — confusion matrix
 
-### `output/reports/` (robustness)
-- `06-robustness_results.json` — robusztussági tesztek eredményei (Macro/Weighted F1)
-- `06-robustness_comparison.png` — összehasonlító ábra
-
-### `output/reports/` (explainability)
-- `07-explainability_attention_importance.json` — attention-alapú token fontosság
-- `07-explainability_attention_summary.json` — osztályonkénti összegzések
-- `07-explainability_misclassification_analysis.json` — hibaanalízis
-- `07-explainability_top_confusion_pairs.png` — leggyakoribb félreosztások
+### `output/reports/` (advanced)
+- `advanced/robustness/robustness_results.json` — robusztussági tesztek (Accuracy, Macro/Weighted F1)
+- `advanced/robustness/robustness_accuracy.png` — összehasonlító ábra
+- `advanced/explainability/attention_importance.json` — attention-alapú token fontosság
+- `advanced/explainability/attention_summary.json` — osztályonkénti összegzések
+- `advanced/explainability/misclassification_analysis.json` — hibaanalízis
+- `advanced/explainability/confusion_pairs.png` — leggyakoribb félreosztások
 
 ---
 

@@ -423,10 +423,10 @@ def extract_label_from_annotations(annotations_raw: str):
 def eda_label_analysis(df: pd.DataFrame, raw_dir: str, features_dir: str):
     """Perform EDA-only label checks:
 
-    - deduplicate rows by text_raw
-    - drop rows where 'choices' is empty OR 'data.text' is empty
-    - plot label distribution (count per label)
-    - save an EDA-specific filtered snapshot to raw_dir (does not replace raw_dataset.csv)
+    - kinyeri a labelt az annotációból (label_raw)
+    - üres értékeket felderíti (nem törli a sort)
+    - label eloszlást, metrikákat számol
+    - csak EDA: nem tisztít, nem deduplikál, nem módosítja a RAW állományt
     """
     if 'text_raw' not in df.columns:
         print("EDA label analysis skipped: 'text_raw' column missing.")
@@ -436,58 +436,20 @@ def eda_label_analysis(df: pd.DataFrame, raw_dir: str, features_dir: str):
     df = df.copy()
     df['label_raw'] = df.get('annotations_raw', '').apply(extract_label_from_annotations)
 
-    before = len(df)
-    
-    # Track duplicates before removing them
-    df['row_id'] = range(len(df))  # Add temporary ID to track rows
-    df_before_dedup = df.copy()
-    
-    # Deduplicate by text content (useful in multi-source scenarios)
-    df = df.drop_duplicates(subset=['text_raw'], keep='first').reset_index(drop=True)
-    after_dedup = len(df)
-    duplicates_removed = before - after_dedup
-    
-    # Find which rows were duplicates (rows that were removed)
-    kept_ids = set(df['row_id'])
-    duplicate_rows = df_before_dedup[~df_before_dedup['row_id'].isin(kept_ids)].copy()
-    
-    # Track rows with missing labels OR empty text before removing them
-    df_before_missing = df.copy()
-    # Remove if: choices is empty/missing OR text is empty
-    missing_label_mask = (df['label_raw'].isna() | (df['label_raw'] == '')) | (df['text_raw'].isna() | (df['text_raw'] == ''))
-    missing_label_rows = df_before_missing[missing_label_mask].copy()
-    
-    # Drop rows with missing labels or empty text
-    df = df[~missing_label_mask].reset_index(drop=True)
-    after_drop_missing = len(df)
-    missing_labels_removed = after_dedup - after_drop_missing
+    total_rows = len(df)
+    missing_mask = (df['label_raw'].isna() | (df['label_raw'] == '')) | (df['text_raw'].isna() | (df['text_raw'] == ''))
+    missing_count = int(missing_mask.sum())
 
-    print(f"EDA label analysis: rows before={before}, after_dedup={after_dedup}, after_drop_missing_label={after_drop_missing}")
-    print(f"  - Duplikált sorok eltávolítva: {duplicates_removed}")
-    print(f"  - Üres 'choices' VAGY üres 'text' sorok eltávolítva: {missing_labels_removed}")
+    print(f"EDA label analysis: rows={total_rows}, missing_label_or_text={missing_count}")
 
-    # Save statistics to file
+    # Save statistics to file (informational, no rows are dropped)
     stats_file = os.path.join(features_dir, f'{STEP_PREFIX}_raw_eda_statistics.txt')
     with open(stats_file, 'w', encoding='utf-8') as f:
         f.write("RAW EDA Statisztikák\n")
         f.write("=" * 50 + "\n\n")
-        f.write(f"Összes sor (kezdeti): {before}\n")
-        f.write(f"Duplikált sorok eltávolítva: {duplicates_removed}\n")
-        f.write(f"Sorok deduplikálás után: {after_dedup}\n")
-        f.write(f"Üres 'choices' VAGY üres 'text' sorok eltávolítva: {missing_labels_removed}\n")
-        f.write(f"Végső sorok (EDA-szűrt): {after_drop_missing}\n")
+        f.write(f"Összes sor: {total_rows}\n")
+        f.write(f"Hiányzó label VAGY üres text: {missing_count}\n")
     print(f"Saved EDA statistics -> {stats_file}")
-    
-    # Save removed rows details
-    if duplicates_removed > 0:
-        dup_file = os.path.join(raw_dir, f'{STEP_PREFIX}_removed_duplicates.csv')
-        duplicate_rows[['text_raw', 'source_file', 'label_raw']].to_csv(dup_file, index=False, encoding='utf-8-sig')
-        print(f"Saved {duplicates_removed} duplicate rows -> {dup_file}")
-    
-    if missing_labels_removed > 0:
-        missing_file = os.path.join(raw_dir, f'{STEP_PREFIX}_removed_missing_labels.csv')
-        missing_label_rows[['text_raw', 'source_file', 'annotations_raw']].to_csv(missing_file, index=False, encoding='utf-8-sig')
-        print(f"Saved {missing_labels_removed} rows with empty choices or text -> {missing_file}")
 
     # Plot label distribution
     try:
@@ -508,16 +470,6 @@ def eda_label_analysis(df: pd.DataFrame, raw_dir: str, features_dir: str):
     except Exception as e:
         print(f"Failed to generate label distribution plot: {e}")
 
-    # Save an EDA-filtered snapshot without altering the canonical raw file
-    try:
-        out_csv = os.path.join(raw_dir, 'raw_dataset_eda_filtered.csv')  # keep original name for downstream compatibility
-        # Remove temporary row_id column before saving
-        df_to_save = df[['text_raw', 'annotations_raw', 'source_file', 'label_raw']].copy()
-        df_to_save.to_csv(out_csv, index=False, encoding='utf-8-sig')
-        print(f"Saved EDA-filtered snapshot -> {out_csv}")
-    except Exception as e:
-        print(f"Failed to save EDA-filtered snapshot: {e}")
-    
     # ===== ADVANCED STATISTICAL ANALYSIS =====
     print("\n" + "="*50)
     print("ADVANCED STATISTICAL ANALYSIS")
