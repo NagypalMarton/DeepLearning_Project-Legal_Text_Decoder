@@ -56,27 +56,52 @@ OUTPUT_DIR = os.getenv('OUTPUT_DIR', '/app/output')
 
 
 def load_baseline_model():
-    """Load baseline model (TF-IDF + LogisticRegression)"""
-    model_path = os.path.join(OUTPUT_DIR, 'models', 'baseline_model.pkl')
-    if not os.path.exists(model_path):
-        return None
-    
-    with open(model_path, 'rb') as f:
-        model = pickle.load(f)
-    
-    return model
-
-
-def load_transformer_model():
-    """Load transformer model (HuBERT)"""
+    """Load baseline transformer model (HuggingFace format)"""
     try:
         from transformers import AutoTokenizer, AutoModelForSequenceClassification
         import torch
         
-        model_dir = os.path.join(OUTPUT_DIR, 'models', 'transformer_model')
+        model_dir = os.path.join(OUTPUT_DIR, 'models', 'baseline_transformer_model')
+        label_map_path = os.path.join(OUTPUT_DIR, 'models', 'baseline_label_mapping.json')
+        
+        if not os.path.exists(model_dir):
+            return None
+        
+        # Load label mapping if available
+        label_mapping = {}
+        if os.path.exists(label_map_path):
+            with open(label_map_path, 'r', encoding='utf-8') as f:
+                label_mapping = json.load(f)
+        
+        # Load model and tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(model_dir)
+        model = AutoModelForSequenceClassification.from_pretrained(model_dir)
+        
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model.to(device)
+        model.eval()
+        
+        return {
+            'model': model,
+            'tokenizer': tokenizer,
+            'label_mapping': label_mapping,
+            'device': device
+        }
+    except Exception as e:
+        print(f"Warning: Could not load baseline model: {e}")
+        return None
+
+
+def load_transformer_model():
+    """Load advanced transformer model (FusionModel with best_transformer_model)"""
+    try:
+        from transformers import AutoTokenizer, AutoModelForSequenceClassification
+        import torch
+        
+        model_dir = os.path.join(OUTPUT_DIR, 'models', 'best_transformer_model')
         label_map_path = os.path.join(OUTPUT_DIR, 'models', 'label_mapping.json')
         
-        if not os.path.exists(model_dir) or not os.path.exists(label_map_path):
+        if not os.path.exists(model_dir):
             return None
         
         # Load label mapping
@@ -141,11 +166,11 @@ async def root():
     loaded = list(models.keys())
     
     # Check which models are available
-    baseline_path = os.path.join(OUTPUT_DIR, 'models', 'baseline_model.pkl')
+    baseline_path = os.path.join(OUTPUT_DIR, 'models', 'baseline_transformer_model')
     if os.path.exists(baseline_path):
         available.append('baseline')
     
-    transformer_path = os.path.join(OUTPUT_DIR, 'models', 'transformer_model')
+    transformer_path = os.path.join(OUTPUT_DIR, 'models', 'best_transformer_model')
     if os.path.exists(transformer_path):
         available.append('transformer')
     
@@ -273,19 +298,19 @@ async def list_models():
     """List available and loaded models"""
     available = []
     
-    baseline_path = os.path.join(OUTPUT_DIR, 'models', 'baseline_model.pkl')
+    baseline_path = os.path.join(OUTPUT_DIR, 'models', 'baseline_transformer_model')
     if os.path.exists(baseline_path):
         available.append({
             'name': 'baseline',
-            'type': 'TF-IDF + Logistic Regression',
+            'type': 'HuBERT Baseline Transformer',
             'loaded': 'baseline' in models
         })
     
-    transformer_path = os.path.join(OUTPUT_DIR, 'models', 'transformer_model')
+    transformer_path = os.path.join(OUTPUT_DIR, 'models', 'best_transformer_model')
     if os.path.exists(transformer_path):
         available.append({
             'name': 'transformer',
-            'type': 'HuBERT (Hungarian BERT)',
+            'type': 'FusionModel (HuBERT + Features)',
             'loaded': 'transformer' in models
         })
     
