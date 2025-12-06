@@ -12,6 +12,66 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+# FusionModel class for transformer-based predictions
+class FusionModel(nn.Module):
+    """Transformer + standardized readability feature MLP fusion with mean pooling."""
+    
+    def __init__(self, transformer_model, num_classes=5, feature_dim=8, feat_hidden=32, hidden_dim=256, dropout=0.3, pooling='mean', use_coral=False):
+        super().__init__()
+        self.transformer = transformer_model
+        self.feature_dim = feature_dim
+        self.pooling = pooling
+        self.num_classes = num_classes
+        self.use_coral = use_coral
+        transformer_hidden_size = transformer_model.config.hidden_size
+        
+        self.feature_branch = nn.Sequential(
+            nn.Linear(feature_dim, feat_hidden),
+            nn.LayerNorm(feat_hidden),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(feat_hidden, feat_hidden),
+            nn.GELU()
+        )
+        
+        self.fusion_fc = nn.Linear(transformer_hidden_size + feat_hidden, hidden_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.classifier = nn.Linear(hidden_dim, num_classes)
+
+    def _pool(self, hidden_states, attention_mask):
+        if self.pooling == 'mean':
+            mask = attention_mask.unsqueeze(-1)
+            summed = (hidden_states * mask).sum(1)
+            counts = mask.sum(1).clamp(min=1)
+            return summed / counts
+        return hidden_states[:, 0, :]
+
+    def forward(self, input_ids, attention_mask, readability_features=None, labels=None):
+        outputs = self.transformer(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=False,
+            return_dict=True
+        )
+        hidden = outputs.last_hidden_state
+        pooled = self._pool(hidden, attention_mask)
+        
+        if readability_features is not None:
+            feat = self.feature_branch(readability_features)
+        else:
+            feat = torch.zeros(pooled.size(0), self.feature_branch[0].out_features, device=pooled.device)
+        
+        fused = torch.cat([pooled, feat], dim=1)
+        x = self.dropout(F.gelu(self.fusion_fc(fused)))
+        logits = self.classifier(x)
+        
+        output = type('Output', (), {'logits': logits})()
+        return output
 
 
 # Request/Response models
@@ -93,42 +153,75 @@ def load_baseline_model():
 
 
 def load_transformer_model():
-    """Load advanced transformer model (FusionModel with best_transformer_model)"""
+    """Load advanced FusionModel transformer"""
     try:
         from transformers import AutoTokenizer, AutoModelForSequenceClassification
-        import torch
         
         model_dir = os.path.join(OUTPUT_DIR, 'models', 'best_transformer_model')
         label_map_path = os.path.join(OUTPUT_DIR, 'models', 'label_mapping.json')
+        fusion_config_path = os.path.join(model_dir, 'fusion_config.json')
         
         if not os.path.exists(model_dir):
             return None
         
         # Load label mapping
-        with open(label_map_path, 'r', encoding='utf-8') as f:
-            label_mapping = json.load(f)
+        label_mapping = {}
+        if os.path.exists(label_map_path):
+            with open(label_map_path, 'r', encoding='utf-8') as f:
+                label_mapping = json.load(f)
         
-        # Load model and tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(model_dir)
-        model = AutoModelForSequenceClassification.from_pretrained(model_dir)
+        # Load fusion config
+        fusion_config = {}
+        if os.path.exists(fusion_config_path):
+            with open(fusion_config_path, 'r', encoding='utf-8') as f:
+                fusion_config = json.load(f)
         
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        model.to(device)
-        model.eval()
-        try:
-            if device.type == 'cuda':
-                print(f"API using GPU: {torch.cuda.get_device_name(0)}")
-        except Exception:
-            pass
+        
+        # Load metadata to find base model name
+        metadata = {}
+        metadata_path = os.path.join(model_dir, 'metadata.json')
+        if os.path.exists(metadata_path):
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+        
+        # Load base transformer from HuggingFace (using model name from metadata)
+        base_model_name = metadata.get('model_name', 'SZTAKI-HLT/hubert-base-cc')
+        from transformers import AutoModel
+        base_transformer = AutoModel.from_pretrained(base_model_name)
+        
+        # Create FusionModel wrapper
+        fusion_model = FusionModel(
+            base_transformer,
+            num_classes=fusion_config.get('num_classes', 5),
+            feature_dim=fusion_config.get('feature_dim', 8),
+            hidden_dim=fusion_config.get('hidden_dim', 256),
+            dropout=fusion_config.get('dropout', 0.3)
+        )
+        
+        # Load saved weights
+        model_weights_path = os.path.join(model_dir, 'pytorch_model.bin')
+        if os.path.exists(model_weights_path):
+            weights = torch.load(model_weights_path, map_location=device, weights_only=False)
+            fusion_model.load_state_dict(weights, strict=False)
+        
+        fusion_model.to(device)
+        fusion_model.eval()
+        
+        # Load tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(model_dir)
         
         return {
-            'model': model,
+            'model': fusion_model,
             'tokenizer': tokenizer,
             'label_mapping': label_mapping,
-            'device': device
+            'device': device,
+            'is_fusion': True
         }
     except Exception as e:
         print(f"Warning: Could not load transformer model: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -275,14 +368,19 @@ def predict_baseline(text: str) -> PredictionResponse:
 
 
 def predict_transformer(text: str) -> PredictionResponse:
-    """Predict using transformer model"""
-    import torch
-    
+    """Predict using FusionModel transformer"""
     model_data = models['transformer']
     model = model_data['model']
     tokenizer = model_data['tokenizer']
     device = model_data['device']
-    id2label = model_data['label_mapping']['id2label']
+    label_mapping = model_data.get('label_mapping', {})
+    
+    # Get id2label mapping or use defaults (1-5)
+    if label_mapping and 'id2label' in label_mapping:
+        id2label = label_mapping['id2label']
+    else:
+        # Default mapping for 5 classes (1-5 scale)
+        id2label = {str(i): str(i+1) for i in range(5)}
     
     # Tokenize
     encoding = tokenizer(

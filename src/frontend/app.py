@@ -160,16 +160,9 @@ def main():
     with col2:
         st.subheader("⚙️ Beállítások")
         
-        # Model selection
-        available_models = health.get('models_loaded', [])
-        model_type = st.selectbox(
-            "Modell kiválasztása:",
-            options=available_models,
-            format_func=lambda x: {
-                'baseline': '🔹 Baseline (TF-IDF + LogReg)',
-                'transformer': '🔸 Transformer (HuBERT)'
-            }.get(x, x)
-        )
+        # Always use transformer/incremental model
+        model_type = 'transformer'
+        st.info("📋 **Modell:** Inkrementális Transformer (FusionModel)")
         
         st.markdown("---")
         
@@ -232,8 +225,8 @@ def main():
         
         with col3:
             st.metric(
-                label="Használt modell",
-                value=data['model_used'].title()
+                label="Modell típus",
+                value="Inkrementális"
             )
         
         st.markdown("---")
