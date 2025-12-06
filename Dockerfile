@@ -25,7 +25,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY ./ .
 
 # A futtató script végrehajthatóvá tétele
-RUN chmod +x src/run.sh src/run_service.sh
+RUN chmod +x src/run.sh
 
 # Healthcheck (opcionális, de hasznos)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

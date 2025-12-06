@@ -1,9 +1,9 @@
-
 import os
 import json
 import re
 import unicodedata
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -23,15 +23,15 @@ except Exception:
 
 
 def clean_text(text):
-   """Clean and preprocess text data for Hungarian legal texts (lowercase, normalize, strip)."""
-   if pd.isna(text) or text == "":
-	   return ""
-   text = str(text)
-   text = text.lower()  # lowercase for deduplication and normalization
-   text = unicodedata.normalize('NFC', text)
-   text = re.sub(r'\s+', ' ', text)
-   text = re.sub(r'[^\w\s\.,!\?;:\-–—\(\)"\'„"%/€$…]', '', text)
-   return text.strip()
+	"""Clean and preprocess text data for Hungarian legal texts (lowercase, normalize, strip)."""
+	if pd.isna(text) or text == "":
+		return ""
+	text = str(text)
+	text = text.lower()  # lowercase for deduplication and normalization
+	text = unicodedata.normalize('NFC', text)
+	text = re.sub(r'\s+', ' ', text)
+	text = re.sub(r'[^\w\s\.,!\?;:\-–—\(\)"\'„"%/€$…]', '', text)
+	return text.strip()
 
 
 def stratified_split(df, target_column, test_size=0.2, val_size=0.2, random_state=42):
@@ -71,9 +71,9 @@ def save_histogram(series: pd.Series, title: str, path: str, bins: int = 50):
 def maybe_compute_embeddings(df_list, features_dir: str, model_name: str, batch_size: int = 32):
 	"""Optionally compute Sentence-BERT embeddings for train/val/test splits."""
 	if SentenceTransformer is None:
-		print("sentence-transformers not available; skipping embeddings.")
+		logger.info("sentence-transformers not available; skipping embeddings.")
 		return None
-	print(f"Loading embedding model: {model_name}")
+	logger.info(f"Loading embedding model: {model_name}")
 	model = SentenceTransformer(model_name)
 	split_names = ['train', 'val', 'test']
 	meta = {"model": model_name}
@@ -81,8 +81,7 @@ def maybe_compute_embeddings(df_list, features_dir: str, model_name: str, batch_
 		if df is None:
 			continue
 		texts = df['text'].astype(str).tolist()
-        logger.info(f"Encoding {name} split with {len(texts)} texts...")
-		print(f"Encoding {name} split with {len(texts)} texts...")
+		logger.info(f"Encoding {name} split with {len(texts)} texts...")
 		emb = model.encode(texts, batch_size=batch_size, show_progress_bar=True)
 		out_path = os.path.join(features_dir, f'{STEP_PREFIX}_embeddings_{name}.npy')
 		np.save(out_path, emb)
@@ -90,7 +89,7 @@ def maybe_compute_embeddings(df_list, features_dir: str, model_name: str, batch_
 	meta_path = os.path.join(features_dir, f'{STEP_PREFIX}_embeddings_meta.json')
 	with open(meta_path, 'w', encoding='utf-8') as f:
 		json.dump(meta, f, ensure_ascii=False, indent=2)
-	print(f"Saved embeddings metadata to {meta_path}")
+	logger.info(f"Saved embeddings metadata to {meta_path}")
 	return meta
 
 
@@ -202,50 +201,6 @@ def main():
 		logger.warning(f"Insufficient data for stratified split. Saving single file.")
 		aug = add_text_stats(df)
 		aug.to_csv(os.path.join(processed_dir, 'processed_data.csv'), index=False, encoding='utf-8-sig')
-	   deduped = df['text_dedup'].tolist()
-	   dropped = df_raw[~df_raw['text_raw'].str.lower().isin(deduped)]
-	   dropped.to_csv(dup_file, index=False, encoding='utf-8-sig')
-	   print(f"Saved removed duplicates to {dup_file}")
-
-   # Drop helper column
-   df = df.drop(columns=['text_dedup'])
-
-
-	   # Stratified split
-	   target_column = 'label'
-	   if target_column in df.columns and len(df) > 10:
-		   print("Performing stratified split...")
-		   train_df, val_df, test_df = stratified_split(df, target_column)
-		   print(f"Train set: {len(train_df)}, Val set: {len(val_df)}, Test set: {len(test_df)}")
-
-		   # Add text stats to each split
-		   for name, split_df in [('train', train_df), ('val', val_df), ('test', test_df)]:
-			   aug = add_text_stats(split_df)
-			   out_csv = os.path.join(processed_dir, f'{name}.csv')
-			   aug.to_csv(out_csv, index=False, encoding='utf-8-sig')
-			   print(f"Saved {name}.csv with stats -> {out_csv}")
-
-		   # Clean EDA histograms (from train split)
-		   if len(train_df) > 0 and 'text' in train_df.columns:
-			   temp = add_text_stats(train_df)
-			   if 'word_count' in temp.columns:
-				   save_histogram(temp['word_count'], 'CLEAN Word Count Distribution (Train)',
-								  os.path.join(features_dir, f'{STEP_PREFIX}_clean_word_count_hist.png'))
-			   if 'avg_word_len' in temp.columns:
-				   save_histogram(temp['avg_word_len'], 'CLEAN Average Word Length Distribution (Train)',
-								  os.path.join(features_dir, f'{STEP_PREFIX}_clean_avg_word_len_hist.png'))
-
-		   # Optional embeddings
-		   enable_embeddings = os.getenv('ENABLE_EMBEDDINGS', 'false').lower() in {'1', 'true', 'yes'}
-		   if enable_embeddings:
-			   emb_model = os.getenv('EMBEDDING_MODEL', 'paraphrase-multilingual-MiniLM-L12-v2')
-			   maybe_compute_embeddings([train_df, val_df, test_df], features_dir, emb_model)
-		   else:
-			   print("Embeddings disabled (set ENABLE_EMBEDDINGS=true to enable).")
-	   else:
-		   print(f"Insufficient data for stratified split. Saving single file.")
-		   aug = add_text_stats(df)
-		   aug.to_csv(os.path.join(processed_dir, 'processed_data.csv'), index=False, encoding='utf-8-sig')
 
 
 if __name__ == '__main__':
