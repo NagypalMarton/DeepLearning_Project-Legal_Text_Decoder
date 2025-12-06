@@ -215,25 +215,59 @@ async def predict(request: PredictionRequest):
 
 
 def predict_baseline(text: str) -> PredictionResponse:
-    """Predict using baseline model"""
-    model = models['baseline']
+    """Predict using baseline transformer model"""
+    import torch
     
-    # Get prediction
-    prediction = model.predict([text])[0]
-    probabilities = model.predict_proba([text])[0]
+    model_data = models['baseline']
+    model = model_data['model']
+    tokenizer = model_data['tokenizer']
+    device = model_data['device']
+    label_mapping = model_data.get('label_mapping', {})
     
-    # Get class labels
-    classes = model.classes_ if hasattr(model, 'classes_') else list(range(len(probabilities)))
+    # Get id2label mapping or use defaults (1-5)
+    if label_mapping and 'id2label' in label_mapping:
+        id2label = label_mapping['id2label']
+    else:
+        # Default mapping for 5 classes (1-5 scale)
+        id2label = {str(i): str(i+1) for i in range(5)}
+    
+    # Tokenize
+    encoding = tokenizer(
+        text,
+        add_special_tokens=True,
+        max_length=512,
+        padding='max_length',
+        truncation=True,
+        return_tensors='pt'
+    )
+    
+    # Move to device
+    input_ids = encoding['input_ids'].to(device)
+    attention_mask = encoding['attention_mask'].to(device)
+    
+    # Predict
+    with torch.no_grad():
+        use_mixed = device.type == 'cuda'
+        from torch import amp as torch_amp
+        with torch_amp.autocast('cuda', enabled=use_mixed):
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            logits = outputs.logits
+        probabilities = torch.softmax(logits, dim=1)[0]
+        predicted_class = torch.argmax(probabilities).item()
     
     # Build probability dict
-    prob_dict = {str(cls): float(prob) for cls, prob in zip(classes, probabilities)}
+    prob_dict = {
+        id2label[str(i)]: float(probabilities[i].cpu().numpy())
+        for i in range(len(probabilities))
+    }
     
-    # Get confidence (max probability)
-    confidence = float(max(probabilities))
+    # Get prediction and confidence
+    prediction = id2label[str(predicted_class)]
+    confidence = float(probabilities[predicted_class].cpu().numpy())
     
     return PredictionResponse(
         text=text[:200] + '...' if len(text) > 200 else text,
-        prediction=str(prediction),
+        prediction=prediction,
         confidence=confidence,
         probabilities=prob_dict,
         model_used='baseline'
