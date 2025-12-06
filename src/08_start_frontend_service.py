@@ -47,12 +47,19 @@ def start_frontend_service():
         logger.info("Skipping frontend service startup.")
         return 0
     
-    # Check if API is available (optional warning)
-    if not check_api_available():
-        logger.warning("API service is not available!")
-        logger.warning("Frontend will start but may not work correctly without the API.")
-        logger.warning("Consider setting START_API_SERVICE=1 to start the API first.")
-        time.sleep(2)  # Give user time to read warning
+
+    # Wait for API to become available (max 60s)
+    max_wait = 60
+    waited = 0
+    while not check_api_available() and waited < max_wait:
+        if waited == 0:
+            logger.warning("API service is not available! Waiting for it to become available...")
+        time.sleep(5)
+        waited += 5
+    if waited >= max_wait:
+        logger.warning(f"API service is still not available after {max_wait} seconds! Frontend will start, but may not work correctly.")
+    else:
+        logger.info(f"API became available after {waited} seconds.")
     
     # Determine host and port
     frontend_host = os.getenv('FRONTEND_HOST', '0.0.0.0')
