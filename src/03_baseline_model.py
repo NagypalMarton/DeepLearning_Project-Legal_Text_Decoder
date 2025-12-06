@@ -1,7 +1,7 @@
+
 import os
 import json
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import torch
@@ -15,6 +15,9 @@ import matplotlib.pyplot as plt
 import math
 from tqdm.auto import tqdm
 import sys
+from utils import setup_logger
+
+logger = setup_logger(__name__)
 
 
 def load_split_csv(processed_dir: str):
@@ -267,10 +270,11 @@ def evaluate(model, dataloader, device, criterion, id2label):
 	return avg_loss, acc, all_preds, all_trues
 
 def main():
+
 	base_output = os.getenv('OUTPUT_DIR', '/app/output')
 	processed_dir = os.path.join(base_output, 'processed')
 	models_dir, reports_dir = ensure_dirs(base_output)
-	print(f"Processed data dir: {processed_dir}")
+	logger.info(f"Processed data dir: {processed_dir}")
 	train_df, val_df, test_df = load_split_csv(processed_dir)
 	if 'text' not in train_df.columns or 'label' not in train_df.columns:
 		raise ValueError("Train CSV must contain 'text' and 'label'")
@@ -288,7 +292,7 @@ def main():
 	mapping_path = os.path.join(models_dir, 'baseline_label_mapping.json')
 	with open(mapping_path, 'w', encoding='utf-8') as f:
 		json.dump({'label2id': label2id, 'id2label': {str(k): v for k, v in id2label.items()}}, f, ensure_ascii=False, indent=2)
-	print(f"Saved baseline label mapping to {mapping_path}")
+	logger.info(f"Saved baseline label mapping to {mapping_path}")
 
 	# Convert labels to ids
 	y_train_ids = [label2id[l] for l in y_train]
@@ -304,15 +308,21 @@ def main():
 	weight_decay = float(os.getenv('BASELINE_WEIGHT_DECAY', os.getenv('WEIGHT_DECAY', '0.01')))
 	label_smoothing = float(os.getenv('BASELINE_LABEL_SMOOTHING', os.getenv('LABEL_SMOOTHING', '0.15')))
 
-	print(f"Baseline Transformer: {model_name} | epochs={epochs} | batch_size={batch_size} | lr={lr} | max_length={max_length}")
+	logger.info(f"Baseline Transformer: {model_name} | epochs={epochs} | batch_size={batch_size} | lr={lr} | max_length={max_length}")
 
 	# Device
 	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-	print(f"Using device: {device}")
+	logger.info(f"Using device: {device}")
+
 
 	tokenizer = AutoTokenizer.from_pretrained(model_name)
 	model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=len(label2id))
 	model.to(device)
+
+	# Log model parameter counts
+	total_params = sum(p.numel() for p in model.parameters())
+	trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+	logger.info(f"Model Architecture: {total_params:,} total | {trainable_params:,} trainable parameters")
 
 	# Datasets / Loaders
 	train_ds = BaselineTransformerDataset(X_train, y_train_ids, tokenizer, max_length)
@@ -335,18 +345,19 @@ def main():
 	history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
 
 	for epoch in range(epochs):
-		print(f"\nEpoch {epoch+1}/{epochs}")
+		logger.info(f"\nEpoch {epoch+1}/{epochs}")
 		train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, scheduler, device, criterion)
 		history['train_loss'].append(train_loss)
 		history['train_acc'].append(train_acc)
-		print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}")
+		logger.info(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}")
 		if val_loader:
 			val_loss, val_acc, val_preds, val_trues = evaluate(model, val_loader, device, criterion, id2label)
 			history['val_loss'].append(val_loss)
 			history['val_acc'].append(val_acc)
-			print(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+			logger.info(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
 
 	# Plot training curves
+
 	try:
 		fig, ax = plt.subplots(1, 2, figsize=(12, 4))
 		ax[0].plot(range(1, len(history['train_loss'])+1), history['train_loss'], label='Train Loss', marker='o')
@@ -372,20 +383,22 @@ def main():
 		training_plot_path = os.path.join(reports_dir, '03-baseline_training_curves.png')
 		fig.savefig(training_plot_path, dpi=150, bbox_inches='tight')
 		plt.close(fig)
-		print(f"Saved training curves to {training_plot_path}")
+		logger.info(f"Saved training curves to {training_plot_path}")
 	except Exception as e:
-		print(f"Warning: failed to plot training curves: {e}")
+		logger.warning(f"Failed to plot training curves: {e}")
 
 	# Save baseline transformer model
+
 	baseline_model_dir = os.path.join(models_dir, 'baseline_transformer_model')
 	Path(baseline_model_dir).mkdir(parents=True, exist_ok=True)
 	model.save_pretrained(baseline_model_dir)
 	tokenizer.save_pretrained(baseline_model_dir)
-	print(f"Saved baseline transformer to {baseline_model_dir}")
+	logger.info(f"Saved baseline transformer to {baseline_model_dir}")
+
 
 	def evaluate_and_save(split_name, loader, original_labels):
 		if loader is None or original_labels is None:
-			print(f"No {split_name} split; skipping")
+			logger.warning(f"No {split_name} split; skipping")
 			return
 		loss, acc, preds, trues = evaluate(model, loader, device, criterion, id2label)
 		all_labels = sorted(list(set(trues) | set(preds)))
@@ -400,14 +413,14 @@ def main():
 		report_path = os.path.join(reports_dir, f'03-baseline_{split_name}_report.json')
 		with open(report_path, 'w', encoding='utf-8') as f:
 			json.dump(report, f, ensure_ascii=False, indent=2)
-		print(f"Saved {split_name} report to {report_path}")
-		print(f"  Accuracy: {report['accuracy']:.4f}, Weighted F1: {report.get('weighted avg', {}).get('f1-score', 0):.4f}, MAE: {mae:.4f}, RMSE: {rmse:.4f}")
+		logger.info(f"Saved {split_name} report to {report_path}")
+		logger.info(f"  Accuracy: {report['accuracy']:.4f}, Weighted F1: {report.get('weighted avg', {}).get('f1-score', 0):.4f}, MAE: {mae:.4f}, RMSE: {rmse:.4f}")
 		cm_path = os.path.join(reports_dir, f'03-baseline_{split_name}_confusion_matrix.png')
 		plot_confusion_matrix(trues, preds, all_labels, cm_path, split_name=split_name.capitalize())
-		print(f"Saved {split_name} confusion matrix to {cm_path}")
+		logger.info(f"Saved {split_name} confusion matrix to {cm_path}")
 		metrics_plot_path = os.path.join(reports_dir, f'03-baseline_{split_name}_metrics_summary.png')
 		plot_metrics_summary(report, metrics_plot_path, split_name=split_name.capitalize())
-		print(f"Saved {split_name} metrics summary to {metrics_plot_path}")
+		logger.info(f"Saved {split_name} metrics summary to {metrics_plot_path}")
 
 		# Additional visualizations: per-class and averages, plus error bars
 		plot_classwise_bars(report, reports_dir, split_name=split_name)
@@ -415,7 +428,7 @@ def main():
 		plot_average_metrics(report, avg_metrics_path, split_name=split_name.capitalize())
 		error_metrics_path = os.path.join(reports_dir, f'03-baseline_{split_name}_errors.png')
 		plot_error_metrics(mae, rmse, error_metrics_path, split_name=split_name.capitalize())
-		print(f"Saved {split_name} classwise/avg/error metric plots to reports")
+		logger.info(f"Saved {split_name} classwise/avg/error metric plots to reports")
 
 	evaluate_and_save('val', val_loader, y_val)
 	evaluate_and_save('test', test_loader, y_test)
