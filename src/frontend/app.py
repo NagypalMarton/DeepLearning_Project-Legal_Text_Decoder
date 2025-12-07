@@ -123,7 +123,6 @@ def main():
             st.info("Futtasd le először a training pipeline-t!")
         else:
             st.success("✅ API elérhető")
-            st.info("🤖 Modell: **FusionModel** (HuBERT + Readability Features)")
         
         st.markdown("---")
         
@@ -136,15 +135,6 @@ def main():
         - **4**: Könnyen érthető
         - **5**: Nagyon könnyen érthető
         """)
-        
-        st.markdown("---")
-        st.markdown("**Példa szövegek:**")
-        if st.button("Nehéz jogi szöveg"):
-            st.session_state['example_text'] = "A Ptk. 6:130. § (1) bekezdése alapján a szerződést úgy kell értelmezni, ahogy azt a felek akarata egybeesik, egyébként a másik fél részéről felismerhető akarat az irányadó."
-            st.rerun()
-        if st.button("Egyszerű szöveg"):
-            st.session_state['example_text'] = "A vásárlónak joga van 14 napon belül indoklás nélkül elállni a szerződéstől."
-            st.rerun()
     
     # Check if we should stop early
     if health['status'] == 'offline':

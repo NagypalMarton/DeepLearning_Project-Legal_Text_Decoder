@@ -100,3 +100,7 @@ if [[ "$START_FRONTEND_SERVICE" == "1" || "$START_FRONTEND_SERVICE" == "true" ]]
 fi
 
 log "Training process completed - services running in background"
+log "Keeping container alive..."
+
+# Keep container alive indefinitely
+sleep infinity
