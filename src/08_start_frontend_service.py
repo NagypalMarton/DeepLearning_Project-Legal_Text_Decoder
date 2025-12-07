@@ -1,9 +1,3 @@
-"""
-09_start_frontend_service.py
-Pipeline step to start the Streamlit frontend after training completes.
-Can be enabled/disabled via environment variable.
-Requires the API service to be running (08_start_api_service.py).
-"""
 import os
 import sys
 import subprocess

@@ -1,23 +1,3 @@
-"""Unified advanced evaluation: robustness + explainability.
-
-This module consolidates the functionality of the former
-`06_advanced_evaluation_robustness.py` and
-`07_advanced_evaluation_explainability.py` into a single entry point with a
-shared inference pipeline. It supports:
-- Robustness tests (noise, truncation) with accuracy/F1 reporting and plots.
-- Attention-based token importance sampling and misclassification analysis.
-
-Usage (examples):
-    python advanced_evaluation.py --mode robustness
-    python advanced_evaluation.py --mode explainability
-    python advanced_evaluation.py --mode both
-
-Environment variables (defaults can be overridden by CLI args):
-    OUTPUT_DIR (default: /app/output)
-    DATA_CSV  (default: <OUTPUT_DIR>/processed/test.csv)
-    MODELS_DIR (default: <OUTPUT_DIR>/models)
-"""
-
 import argparse
 import json
 import os

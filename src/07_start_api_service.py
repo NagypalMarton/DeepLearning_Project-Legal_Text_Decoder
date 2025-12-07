@@ -1,8 +1,3 @@
-"""
-08_start_api_service.py
-Pipeline step to start the API service after training completes.
-Can be enabled/disabled via environment variable.
-"""
 import os
 import sys
 import subprocess
