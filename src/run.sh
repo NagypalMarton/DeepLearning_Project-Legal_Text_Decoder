@@ -69,18 +69,14 @@ for script in "${scripts[@]}"; do
         log "WARNING: $script not found, skipping"
         continue
     fi
-    log "Running: $script"
-
-    # If both API and Frontend requested, run API in background so frontend can start
-    if [[ "$script" == "07_start_api_service.py" ]] \
-       && { [[ "$START_API_SERVICE" == "1" || "$START_API_SERVICE" == "true" ]] ; } \
-       && { [[ "$START_FRONTEND_SERVICE" == "1" || "$START_FRONTEND_SERVICE" == "true" ]] ; }; then
-        log "Launching API in background (to allow frontend startup)"
-        ( "$py" "$file" & )
-        log "API launched in background"
+    
+    # Skip API and Frontend scripts - they will be started after training
+    if [[ "$script" == "07_start_api_service.py" ]] || [[ "$script" == "08_start_frontend_service.py" ]]; then
+        log "Skipping $script (will start in background after training)"
         continue
     fi
-
+    
+    log "Running: $script"
     if ! "$py" "$file"; then
         log "ERROR: $script failed"
         exit 1
@@ -88,5 +84,19 @@ for script in "${scripts[@]}"; do
     log "Completed: $script"
 done
 
-log "All Python scripts executed successfully"
-log "Training process completed"
+log "All training scripts executed successfully"
+
+# Start API and Frontend services in background (non-blocking)
+if [[ "$START_API_SERVICE" == "1" || "$START_API_SERVICE" == "true" ]]; then
+    log "Starting API service in background..."
+    nohup "$py" "$dir/07_start_api_service.py" >> "$OUTPUT_DIR/api.log" 2>&1 &
+    log "API service started (PID: $!)"
+fi
+
+if [[ "$START_FRONTEND_SERVICE" == "1" || "$START_FRONTEND_SERVICE" == "true" ]]; then
+    log "Starting Frontend service in background..."
+    nohup "$py" "$dir/08_start_frontend_service.py" >> "$OUTPUT_DIR/frontend.log" 2>&1 &
+    log "Frontend service started (PID: $!)"
+fi
+
+log "Training process completed - services running in background"

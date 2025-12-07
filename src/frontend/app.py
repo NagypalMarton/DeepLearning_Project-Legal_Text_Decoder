@@ -108,8 +108,8 @@ def main():
     # Check API status first
     health = check_api_health()
     
-    # Initialize model_type with default value
-    model_type = "bert"
+    # Use transformer model only
+    model_type = "transformer"
     
     # Sidebar
     with st.sidebar:
@@ -123,18 +123,9 @@ def main():
             st.info("Futtasd le először a training pipeline-t!")
         else:
             st.success("✅ API elérhető")
+            st.info("🤖 Modell: **FusionModel** (HuBERT + Readability Features)")
         
         st.markdown("---")
-        
-        # Model selection
-        st.markdown("**Modell választása:**")
-        available_models = health.get('models_loaded', [])
-        if available_models:
-            model_type = st.selectbox(
-                "Válassz modellt:",
-                options=available_models,
-                index=0
-            )
         
         st.markdown("---")
         st.markdown("**Érthetőségi skála:**")
