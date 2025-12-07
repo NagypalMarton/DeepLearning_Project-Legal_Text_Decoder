@@ -30,7 +30,7 @@ def check_api_available():
 def start_frontend_service():
     """Start the Streamlit frontend service."""
     logger.info("=" * 60)
-    logger.info("Starting Frontend Service (Step 09)")
+    logger.info("Starting Frontend Service (Step 08)")
     logger.info("=" * 60)
     
     # Check if we should start the service

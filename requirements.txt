@@ -19,3 +19,27 @@ pydantic>=2.6.0
 streamlit>=1.32.0,<2.0.0
 plotly>=5.20.0
 requests>=2.31.0
+
+# Frontend dependencies
+streamlit>=1.28.0
+plotly>=5.17.0
+pandas>=2.0.0
+requests>=2.31.0
+
+# Backend dependencies
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.4.0
+
+# ML dependencies
+torch>=2.0.0
+transformers>=4.35.0
+scikit-learn>=1.3.0
+numpy>=1.24.0
+
+# Data processing
+datasets>=2.14.0
+
+# Utilities
+python-dotenv>=1.0.0
+tqdm>=4.66.0

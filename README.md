@@ -237,18 +237,32 @@ The repository is organized as follows:
 
 All dependencies are listed in `requirements.txt` with pinned versions for reproducibility:
 
+### Frontend Dependencies
 ```
-numpy<2,>=1.23.2
+streamlit>=1.28.0
+plotly>=5.17.0
 pandas>=2.0.0
-scikit-learn>=1.5.0
+requests>=2.31.0
+```
+
+### Backend Dependencies
+```
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.4.0
+```
+
+### ML Dependencies
+```
 torch>=2.0.0
-transformers>=4.40.0
-sentence-transformers>=2.6.0
-fastapi>=0.110.0
-uvicorn>=0.29.0
-streamlit>=1.32.0,<2.0.0
-textstat>=0.7.3
-matplotlib>=3.8.0
-seaborn>=0.12.0
-plotly>=5.20.0
+transformers>=4.35.0
+scikit-learn>=1.3.0
+numpy>=1.24.0
+datasets>=2.14.0
+```
+
+### Utilities
+```
+python-dotenv>=1.0.0
+tqdm>=4.66.0
 ```

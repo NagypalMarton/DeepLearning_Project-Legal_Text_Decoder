@@ -42,7 +42,7 @@ def check_models_exist():
 def start_api_service():
     """Start the FastAPI service."""
     logger.info("=" * 60)
-    logger.info("Starting API Service (Step 08)")
+    logger.info("Starting API Service (Step 07)")
     logger.info("=" * 60)
     
     # Check if we should start the service

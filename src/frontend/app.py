@@ -1,7 +1,3 @@
-"""
-Streamlit Frontend for Legal Text Decoder
-Simple GUI for testing the trained models
-"""
 import os
 import requests
 import streamlit as st
@@ -107,29 +103,38 @@ def create_probability_chart(probabilities: Dict[str, float]):
 def main():
     # Header
     st.markdown('<div class="main-header">⚖️ Legal Text Decoder</div>', unsafe_allow_html=True)
-    st.markdown("### Jogi szövegek érthetőségének automatikus értékelése")
+    st.markdown("### Jogi szövegek érthetőségének automatikus értékelése AI segítségével")
+    
+    # Check API status first
+    health = check_api_health()
+    
+    # Initialize model_type with default value
+    model_type = "bert"
     
     # Sidebar
     with st.sidebar:
         st.header("ℹ️ Információ")
         
-        # Check API status
-        health = check_api_health()
-        
         if health['status'] == 'offline':
             st.error("🔴 API nem elérhető")
             st.info("Ellenőrizd, hogy a backend fut-e:\n```\npython src/api/app.py\n```")
-            return
         elif health['status'] == 'no_models_loaded':
-            st.warning("⚠️ Nincsenek betöltött modellek")
+            st.warning("⚠️ Nincs betöltött modell!")
             st.info("Futtasd le először a training pipeline-t!")
         else:
             st.success("✅ API elérhető")
         
-        # Display available models
-        st.subheader("Elérhető modellek:")
-        for model in health.get('models_loaded', []):
-            st.write(f"✓ **{model}**")
+        st.markdown("---")
+        
+        # Model selection
+        st.markdown("**Modell választása:**")
+        available_models = health.get('models_loaded', [])
+        if available_models:
+            model_type = st.selectbox(
+                "Válassz modellt:",
+                options=available_models,
+                index=0
+            )
         
         st.markdown("---")
         st.markdown("**Érthetőségi skála:**")
@@ -140,48 +145,36 @@ def main():
         - **4**: Könnyen érthető
         - **5**: Nagyon könnyen érthető
         """)
+        
+        st.markdown("---")
+        st.markdown("**Példa szövegek:**")
+        if st.button("Nehéz jogi szöveg"):
+            st.session_state['example_text'] = "A Ptk. 6:130. § (1) bekezdése alapján a szerződést úgy kell értelmezni, ahogy azt a felek akarata egybeesik, egyébként a másik fél részéről felismerhető akarat az irányadó."
+            st.rerun()
+        if st.button("Egyszerű szöveg"):
+            st.session_state['example_text'] = "A vásárlónak joga van 14 napon belül indoklás nélkül elállni a szerződéstől."
+            st.rerun()
+    
+    # Check if we should stop early
+    if health['status'] == 'offline':
+        return
     
     # Stop if no models loaded
     if not health.get('models_loaded'):
-        st.warning("⚠️ Nincsenek betöltött modellek. Futtasd le először a training pipeline-t!")
+        st.warning("⚠️ Nincs betöltött modell. Futtasd le először a training pipeline-t!")
         st.stop()
     
     # Main content
-    col1, col2 = st.columns([2, 1])
+    st.subheader("📝 Jogi szöveg bekezdés")
+    text_input = st.text_area(
+        "Írd be vagy illeszd be a jogi szöveg egy bekezdését:",
+        height=200,
+        placeholder="Például: A jelen Általános Szerződési Feltételek (továbbiakban: ÁSZF) tartalmazzák...",
+        value=st.session_state.get('example_text', '')
+    )
     
-    with col1:
-        st.subheader("📝 Jogi szöveg bekezdés")
-        text_input = st.text_area(
-            "Írd be vagy illeszd be a jogi szöveg egy bekezdését:",
-            height=200,
-            placeholder="Például: A jelen Általános Szerződési Feltételek (továbbiakban: ÁSZF) tartalmazzák..."
-        )
-    
-    with col2:
-        st.subheader("⚙️ Beállítások")
-        
-        # Always use transformer/incremental model
-        model_type = 'transformer'
-        st.info("📋 **Modell:** Inkrementális Transformer (FusionModel)")
-        
-        st.markdown("---")
-        
-        # Example texts
-        st.subheader("📚 Példa szövegek")
-        examples = {
-            "Egyszerű": "A szerződés mindkét fél számára kötelező érvényű.",
-            "Közepes": "A szerződő felek kötelesek a jelen megállapodásban rögzített feltételeket maradéktalanul teljesíteni.",
-            "Összetett": "A jelen Általános Szerződési Feltételekben nem szabályozott kérdésekben a Polgári Törvénykönyvről szóló 2013. évi V. törvény, valamint az elektronikus kereskedelmi szolgáltatások, valamint az információs társadalommal összefüggő szolgáltatások egyes kérdéseiről szóló 2001. évi CVIII. törvény rendelkezései az irányadók."
-        }
-        
-        for name, text in examples.items():
-            if st.button(f"📄 {name}", use_container_width=True):
-                st.session_state['example_text'] = text
-                st.rerun()
-    
-    # Apply example if selected
+    # Clear example text from session state after use
     if 'example_text' in st.session_state:
-        text_input = st.session_state['example_text']
         del st.session_state['example_text']
     
     # Predict button
@@ -209,7 +202,7 @@ def main():
         # Main prediction
         st.markdown("## 📊 Eredmény")
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         
         with col1:
             st.metric(
@@ -221,14 +214,7 @@ def main():
             st.metric(
                 label="Bizalmi szint",
                 value=f"{data['confidence']:.1%}"
-            )
-        
-        with col3:
-            st.metric(
-                label="Modell típus",
-                value="Inkrementális"
-            )
-        
+            )       
         st.markdown("---")
         
         # Probability chart
