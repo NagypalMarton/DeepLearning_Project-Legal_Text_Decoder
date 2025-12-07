@@ -240,7 +240,13 @@ def plot_metrics_by_label(df: pd.DataFrame, features_dir: str):
     for metric in available_metrics:
         fig, ax = plt.subplots(figsize=(10, 6))
         df_plot = df[df[metric].notna()].copy()
-        labels_sorted = sorted(df_plot['label_raw'].unique())
+        # Filter out None values from label_raw
+        df_plot = df_plot[df_plot['label_raw'].notna()].copy()
+        labels_sorted = sorted([l for l in df_plot['label_raw'].unique() if l is not None])
+        
+        if not labels_sorted:
+            plt.close(fig)
+            continue
         
         data_to_plot = [df_plot[df_plot['label_raw'] == label][metric].values 
                         for label in labels_sorted]
@@ -266,7 +272,8 @@ def compute_tfidf_top_words(df: pd.DataFrame, features_dir: str, top_n: int = 20
     
     print("Computing TF-IDF top words per label...")
     
-    labels = df['label_raw'].unique()
+    # Filter out None labels
+    labels = [l for l in df['label_raw'].unique() if l is not None]
     results = []
     
     for label in sorted(labels):

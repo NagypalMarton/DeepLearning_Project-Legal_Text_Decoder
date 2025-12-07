@@ -48,15 +48,14 @@ scripts=(
 )
 
 
-# Optional: Add API service as step 08 if START_API_SERVICE is set
+# Optional: Add API/frontend services after training
 START_API_SERVICE="${START_API_SERVICE:-0}"
+START_FRONTEND_SERVICE="${START_FRONTEND_SERVICE:-0}"
+
 if [[ "$START_API_SERVICE" == "1" || "$START_API_SERVICE" == "true" ]]; then
     scripts+=("07_start_api_service.py")
     log "API service will be started after training (START_API_SERVICE=$START_API_SERVICE)"
 fi
-
-# Optional: Add Frontend service as step 09 if START_FRONTEND_SERVICE is set
-START_FRONTEND_SERVICE="${START_FRONTEND_SERVICE:-0}"
 if [[ "$START_FRONTEND_SERVICE" == "1" || "$START_FRONTEND_SERVICE" == "true" ]]; then
     scripts+=("08_start_frontend_service.py")
     log "Frontend service will be started after training (START_FRONTEND_SERVICE=$START_FRONTEND_SERVICE)"
@@ -71,6 +70,17 @@ for script in "${scripts[@]}"; do
         continue
     fi
     log "Running: $script"
+
+    # If both API and Frontend requested, run API in background so frontend can start
+    if [[ "$script" == "07_start_api_service.py" ]] \
+       && { [[ "$START_API_SERVICE" == "1" || "$START_API_SERVICE" == "true" ]] ; } \
+       && { [[ "$START_FRONTEND_SERVICE" == "1" || "$START_FRONTEND_SERVICE" == "true" ]] ; }; then
+        log "Launching API in background (to allow frontend startup)"
+        ( "$py" "$file" & )
+        log "API launched in background"
+        continue
+    fi
+
     if ! "$py" "$file"; then
         log "ERROR: $script failed"
         exit 1
