@@ -89,12 +89,29 @@ The project expects raw data in **Label Studio JSON format** with the following 
 ### Automated Data Pipeline
 The pipeline is **fully automated** through `src/run.sh` and includes:
 
-1. **Step 01 – Data Acquisition** (`src/01_data_acquisition_and_analysis.py`)
-   - Loads all JSON files from `/app/data` directory
-   - Performs exploratory data analysis (EDA)
-   - Generates statistics: label distribution, text length histograms, TF-IDF analysis
-   - Output: `raw/raw_dataset.csv` + EDA visualizations
-   - **Read-only**: No modification of raw data
+1. **Step 01 – Data Acquisition & Analysis** (`src/01_data_acquisition_and_analysis.py`)
+   - **Automated Data Download**: Downloads ZIP archive from SharePoint if `/app/data` is empty
+   - **Data Loading**: Processes all JSON files from directory (Label Studio format)
+   - **Exploratory Data Analysis (EDA)**:
+     - Basic statistics: text length, word count distributions
+     - **Readability metrics** (Hungarian-specific):
+       - Flesch Reading Ease (0-100 scale)
+       - Gunning Fog Index (education years needed)
+       - SMOG Index (readability complexity)
+     - **Lexical diversity metrics**:
+       - Type-Token Ratio (TTR)
+       - Moving Average TTR (MATTR)
+       - Hapax Legomena Ratio (unique word occurrence)
+     - **Advanced analysis**:
+       - TF-IDF top words per label
+       - Feature correlation matrix
+       - Metrics by label (box plots)
+       - Top confusion pairs (neighboring labels)
+   - **Output**: 
+     - `raw/raw_dataset.csv` (aggregated raw data)
+     - `raw/raw_dataset_eda_enhanced.csv` (with computed metrics)
+     - `reports/01-acquisition_*.png` (EDA visualizations)
+   - **Read-only**: No modification of original raw data
 
 2. **Step 02 – Cleansing & Preparation** (`src/02_data_cleansing_and_preparation.py`)
    - **Text normalization**: Lowercasing, Unicode NFC normalization, whitespace collapse

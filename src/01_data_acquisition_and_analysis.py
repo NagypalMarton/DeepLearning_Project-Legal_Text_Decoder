@@ -2,9 +2,13 @@ import json
 import os
 import glob
 import re
+import shutil
+import zipfile
 from pathlib import Path
 from typing import List, Union
 from collections import Counter
+from urllib.request import urlretrieve, Request, urlopen
+import tempfile
 
 import pandas as pd
 import numpy as np
@@ -27,6 +31,106 @@ def load_json_data(file_path: str):
     except json.JSONDecodeError:
         print(f"Error: Invalid JSON format in {file_path}")
         raise
+
+
+def download_and_extract_data(data_dir: str, download_url: str) -> bool:
+    """
+    Download ZIP file from SharePoint and extract JSON files to data_dir.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        print(f"Downloading data from SharePoint...")
+        
+        # Create temporary directory for download
+        with tempfile.TemporaryDirectory() as temp_dir:
+            zip_path = os.path.join(temp_dir, 'data.zip')
+            
+            # Download file with custom headers for SharePoint
+            print(f"Downloading... (this may take a moment)")
+            
+            # Create request with headers
+            req = Request(download_url)
+            req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            # Add cookies and referrer for SharePoint anonymous access
+            req.add_header('Referer', 'https://bmeedu-my.sharepoint.com/')
+            req.add_header('Accept', '*/*')
+            
+            # Download with progress
+            with urlopen(req, timeout=60) as response:
+                content_type = response.headers.get('Content-Type', '')
+                data = response.read()
+                
+                # Check if it's actually a ZIP file (starts with PK magic number)
+                if not data.startswith(b'PK'):
+                    print(f"   ✗ Non-ZIP content (Content-Type: {content_type}, Size: {len(data)} bytes)")
+                    return False  # Try next URL instead of raising error
+                
+                with open(zip_path, 'wb') as out_file:
+                    out_file.write(data)
+            
+            print(f"✓ Download complete: {os.path.getsize(zip_path)} bytes")
+            
+            # Extract ZIP
+            print(f"Extracting ZIP file...")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir)
+            print(f"✓ Extraction complete")
+            
+            # Find and copy all JSON files from subdirectories
+            json_count = 0
+            for root, dirs, files in os.walk(temp_dir):
+                for file in files:
+                    if file.endswith('.json'):
+                        src_path = os.path.join(root, file)
+                        dst_path = os.path.join(data_dir, file)
+                        shutil.copy2(src_path, dst_path)
+                        json_count += 1
+            
+            print(f"✓ Copied {json_count} JSON files to {data_dir}")
+            return json_count > 0
+            
+    except Exception as e:
+        print(f"✗ Error downloading/extracting data: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def ensure_data_available(data_dir: str) -> bool:
+    """
+    Check if data_dir has JSON files. If empty, download from SharePoint.
+    Returns True if data is available, False otherwise.
+    """
+    # Create data directory if it doesn't exist
+    Path(data_dir).mkdir(parents=True, exist_ok=True)
+    
+    # Check if any JSON files exist
+    json_files = glob.glob(os.path.join(data_dir, '*.json'))
+    
+    if json_files:
+        print(f"✓ Data directory contains {len(json_files)} JSON files")
+        return True
+    
+    print(f"⚠ Data directory is empty or has no JSON files")
+    print(f"Attempting to download data from SharePoint...")
+    
+    # Try different SharePoint URL approaches
+    urls = [
+        # Direct download with share token
+        "https://bmeedu-my.sharepoint.com/personal/gyires-toth_balint_vik_bme_hu/_layouts/15/download.aspx?share=IQDYwXUJcB_jQYr0bDfNT5RKARYgfKoH97zho3rxZ46KA1I",
+        # Original link
+        "https://bmeedu-my.sharepoint.com/:u:/g/personal/gyires-toth_balint_vik_bme_hu/IQDYwXUJcB_jQYr0bDfNT5RKARYgfKoH97zho3rxZ46KA1I?e=iFp3iz&download=1",
+    ]
+    
+    for url in urls:
+        success = download_and_extract_data(data_dir, url)
+        if success:
+            print(f"✓ Data downloaded and extracted successfully")
+            return True
+    
+    # All attempts failed
+    print(f"✗ Failed to download data. Please provide data files in {data_dir}")
+    return False
 
 
 def load_json_items(input_path: str) -> List[Union[dict, list]]:
@@ -596,4 +700,10 @@ if __name__ == '__main__':
 
     print(f"Input path: {data_dir}")
     print(f"RAW output: {raw_dir}")
+    
+    # Ensure data is available (download if needed)
+    if not ensure_data_available(data_dir):
+        print("ERROR: No data available. Exiting.")
+        exit(1)
+    
     process_raw_data(data_dir, raw_dir, features_dir)
