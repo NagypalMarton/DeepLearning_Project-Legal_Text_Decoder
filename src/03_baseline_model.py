@@ -268,6 +268,172 @@ def evaluate(model, dataloader, device, criterion, id2label):
 	acc = correct / max(1, total)
 	return avg_loss, acc, all_preds, all_trues
 
+def _plot_overfitting_convergence(losses, accuracies, final_iteration):
+	"""Plot Loss and Accuracy curves for overfitting test convergence."""
+	base_output = os.getenv('OUTPUT_DIR', '/app/output')
+	reports_dir = os.path.join(base_output, 'reports')
+	Path(reports_dir).mkdir(parents=True, exist_ok=True)
+	
+	iterations = range(1, len(losses) + 1)
+	
+	fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+	
+	# Loss plot
+	ax1.plot(iterations, losses, linewidth=2, color='#e74c3c', alpha=0.8)
+	ax1.axhline(y=0.001, color='green', linestyle='--', linewidth=2, label='Target (loss < 0.001)', alpha=0.7)
+	ax1.set_xlabel('Iteration', fontsize=12, fontweight='bold')
+	ax1.set_ylabel('Loss', fontsize=12, fontweight='bold')
+	ax1.set_title('Overfitting Test: Loss Convergence', fontsize=13, fontweight='bold')
+	ax1.grid(True, alpha=0.3, linestyle='--')
+	ax1.legend(fontsize=11)
+	ax1.set_yscale('log')
+	
+	# Accuracy plot
+	ax2.plot(iterations, accuracies, linewidth=2, color='#27ae60', alpha=0.8)
+	ax2.axhline(y=1.0, color='red', linestyle='--', linewidth=2, label='Target (acc = 100%)', alpha=0.7)
+	ax2.set_xlabel('Iteration', fontsize=12, fontweight='bold')
+	ax2.set_ylabel('Accuracy', fontsize=12, fontweight='bold')
+	ax2.set_title('Overfitting Test: Accuracy Convergence', fontsize=13, fontweight='bold')
+	ax2.set_ylim([0, 1.1])
+	ax2.grid(True, alpha=0.3, linestyle='--')
+	ax2.legend(fontsize=11)
+	
+	fig.tight_layout()
+	
+	save_path = os.path.join(reports_dir, '03-baseline_overfitting_test_convergence.png')
+	fig.savefig(save_path, dpi=150, bbox_inches='tight')
+	plt.close(fig)
+	
+	logger.info(f"Saved overfitting test convergence plot to {save_path}")
+
+
+def overfitting_test(model, tokenizer, device, X_data, y_data_ids, label2id, id2label, max_length=320, max_iterations=1000):
+	"""
+	Overfitting test: train on a single batch (32 samples) until 100% accuracy and loss < 0.001.
+	All regularization disabled (no dropout, no weight decay).
+	"""
+	logger.info("\n" + "="*80)
+	logger.info("OVERFITTING TEST: Training on single batch (32 samples)")
+	logger.info("Target: 100% accuracy and loss < 0.001")
+	logger.info("="*80)
+	
+	# Take only first 32 samples
+	test_batch_size = min(32, len(X_data))
+	X_test = X_data[:test_batch_size]
+	y_test = y_data_ids[:test_batch_size]
+	
+	logger.info(f"Batch size: {test_batch_size}")
+	logger.info(f"Unique labels in batch: {set(y_test)}")
+	logger.info(f"Label distribution: {[(label, y_test.count(label)) for label in sorted(set(y_test))]}")
+	
+	# Create dataset
+	test_ds = BaselineTransformerDataset(X_test, y_test, tokenizer, max_length=max_length)
+	test_loader = DataLoader(test_ds, batch_size=test_batch_size, shuffle=False, num_workers=0)
+	
+	# Disable regularization
+	for module in model.modules():
+		if isinstance(module, nn.Dropout):
+			module.p = 0.0
+	
+	# Optimizer with NO weight decay
+	optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0.0)
+	criterion = nn.CrossEntropyLoss(label_smoothing=0.0)
+	
+	model.train()
+	iteration = 0
+	best_loss = float('inf')
+	patience_counter = 0
+	max_patience = 50
+	
+	# Track metrics for visualization
+	history_losses = []
+	history_accuracies = []
+	
+	while iteration < max_iterations:
+		iteration += 1
+		
+		for batch in test_loader:
+			optimizer.zero_grad()
+			
+			input_ids = batch['input_ids'].to(device)
+			attention_mask = batch['attention_mask'].to(device)
+			labels = batch['label'].to(device)
+			
+			# Forward pass
+			outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+			logits = outputs.logits
+			loss = criterion(logits, labels)
+			
+			# Backward pass
+			loss.backward()
+			optimizer.step()
+			
+			# Calculate accuracy
+			preds = torch.argmax(logits, dim=1)
+			accuracy = (preds == labels).sum().item() / len(labels)
+			
+			# Store metrics for plotting
+			history_losses.append(loss.item())
+			history_accuracies.append(accuracy)
+			
+			if iteration % 50 == 0 or iteration == 1:
+				logger.info(f"Iteration {iteration:4d} | Loss: {loss.item():.6f} | Accuracy: {accuracy:.4f} ({int(accuracy*100)}%)")
+			
+			# Check success criteria
+			if loss.item() < 0.001 and accuracy == 1.0:
+				logger.info("\n" + "="*80)
+				logger.info("SUCCESS! Overfitting test passed!")
+				logger.info(f"Final Loss: {loss.item():.8f} | Final Accuracy: {accuracy:.4f} (100%)")
+				logger.info(f"Converged in {iteration} iterations")
+				logger.info("="*80 + "\n")
+				
+				# Plot convergence curve
+				_plot_overfitting_convergence(history_losses, history_accuracies, iteration)
+				
+				return True
+			
+			# Check for improvement (if loss not improving, might indicate an issue)
+			if loss.item() < best_loss:
+				best_loss = loss.item()
+				patience_counter = 0
+			else:
+				patience_counter += 1
+	
+	# If we reach here, test failed
+	logger.error("\n" + "="*80)
+	logger.error("FAILURE! Overfitting test did NOT converge to 100% accuracy + loss < 0.001")
+	logger.error(f"Reached iteration {iteration} without meeting criteria")
+	logger.error(f"Best loss achieved: {best_loss:.6f}")
+	logger.error("Possible issues:")
+	logger.error("  1. Model is too small/weak for the task")
+	logger.error("  2. Data corruption or label mismatch")
+	logger.error("  3. Tokenization issues")
+	logger.error("  4. Optimizer/learning rate problems")
+	logger.error("="*80)
+	
+	# Detailed debug info
+	logger.error("\nDEBUG INFO:")
+	logger.error(f"  - Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+	logger.error(f"  - Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
+	logger.error(f"  - Batch size: {test_batch_size}")
+	logger.error(f"  - Max sequence length: {max_length}")
+	
+	# Print first sample details
+	logger.error("\nFirst sample tokenization check:")
+	first_text = X_test[0]
+	first_label = y_test[0]
+	logger.error(f"  Text (first 200 chars): {first_text[:200]}")
+	logger.error(f"  Label ID: {first_label} -> {id2label.get(first_label, 'UNKNOWN')}")
+	
+	enc = tokenizer(first_text, add_special_tokens=True, max_length=max_length, 
+					padding='max_length', truncation=True, return_tensors='pt')
+	logger.error(f"  Tokenized length: {enc['input_ids'].shape}")
+	logger.error(f"  Non-padding tokens: {(enc['attention_mask'].sum()).item()}")
+	
+	raise RuntimeError("OVERFITTING TEST FAILED - Model cannot achieve 100% accuracy on single batch. "
+					  "Fix data/model/tokenization before proceeding.")
+
+
 def main():
 
 	base_output = os.getenv('OUTPUT_DIR', '/app/output')
@@ -300,14 +466,10 @@ def main():
 
 	# Hyperparameters
 	model_name = os.getenv('BASELINE_TRANSFORMER_MODEL', os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc'))
-	epochs = int(os.getenv('BASELINE_EPOCHS', '3'))
 	batch_size = int(os.getenv('BATCH_SIZE', '8'))
-	lr = float(os.getenv('BASELINE_LR', os.getenv('LEARNING_RATE', '2e-5')))
 	max_length = int(os.getenv('BASELINE_MAX_LENGTH', os.getenv('MAX_LENGTH', '320')))
-	weight_decay = float(os.getenv('BASELINE_WEIGHT_DECAY', os.getenv('WEIGHT_DECAY', '0.01')))
-	label_smoothing = float(os.getenv('BASELINE_LABEL_SMOOTHING', os.getenv('LABEL_SMOOTHING', '0.15')))
 
-	logger.info(f"Baseline Transformer: {model_name} | epochs={epochs} | batch_size={batch_size} | lr={lr} | max_length={max_length}")
+	logger.info(f"Baseline Transformer: {model_name} | batch_size={batch_size} | max_length={max_length}")
 
 	# Device
 	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -323,77 +485,32 @@ def main():
 	trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 	logger.info(f"Model Architecture: {total_params:,} total | {trainable_params:,} trainable parameters")
 
-	# Datasets / Loaders
-	train_ds = BaselineTransformerDataset(X_train, y_train_ids, tokenizer, max_length)
-	train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0)
-	val_loader = None
-	test_loader = None
-	if X_val and y_val_ids:
-		val_ds = BaselineTransformerDataset(X_val, y_val_ids, tokenizer, max_length)
-		val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0)
-	if X_test and y_test_ids:
-		test_ds = BaselineTransformerDataset(X_test, y_test_ids, tokenizer, max_length)
-		test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=0)
-
-	# Optimizer & Scheduler
-	optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-	total_steps = epochs * math.ceil(len(train_loader))
-	scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=int(0.1 * total_steps), num_training_steps=total_steps)
-	criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-
-	history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
-
-	for epoch in range(epochs):
-		logger.info(f"\nEpoch {epoch+1}/{epochs}")
-		train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, scheduler, device, criterion)
-		history['train_loss'].append(train_loss)
-		history['train_acc'].append(train_acc)
-		logger.info(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}")
-		if val_loader:
-			val_loss, val_acc, val_preds, val_trues = evaluate(model, val_loader, device, criterion, id2label)
-			history['val_loss'].append(val_loss)
-			history['val_acc'].append(val_acc)
-			logger.info(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
-
-	# Plot training curves
-
-	try:
-		fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-		ax[0].plot(range(1, len(history['train_loss'])+1), history['train_loss'], label='Train Loss', marker='o')
-		if history['val_loss']:
-			ax[0].plot(range(1, len(history['val_loss'])+1), history['val_loss'], label='Val Loss', marker='o')
-		ax[0].set_title('Loss per Epoch')
-		ax[0].set_xlabel('Epoch')
-		ax[0].set_ylabel('Loss')
-		ax[0].grid(alpha=0.3, linestyle='--')
-		ax[0].legend()
-
-		ax[1].plot(range(1, len(history['train_acc'])+1), history['train_acc'], label='Train Acc', marker='o')
-		if history['val_acc']:
-			ax[1].plot(range(1, len(history['val_acc'])+1), history['val_acc'], label='Val Acc', marker='o')
-		ax[1].set_title('Accuracy per Epoch')
-		ax[1].set_xlabel('Epoch')
-		ax[1].set_ylabel('Accuracy')
-		ax[1].set_ylim([0, 1])
-		ax[1].grid(alpha=0.3, linestyle='--')
-		ax[1].legend()
-
-		fig.tight_layout()
-		training_plot_path = os.path.join(reports_dir, '03-baseline_training_curves.png')
-		fig.savefig(training_plot_path, dpi=150, bbox_inches='tight')
-		plt.close(fig)
-		logger.info(f"Saved training curves to {training_plot_path}")
-	except Exception as e:
-		logger.warning(f"Failed to plot training curves: {e}")
-
-	# Save baseline transformer model
-
+	# RUN OVERFITTING TEST (ONLY THIS)
+	logger.info("\n" + "="*80)
+	logger.info("BASELINE MODEL: Overfitting Test Mode")
+	logger.info("="*80)
+	
+	overfitting_test(model, tokenizer, device, X_train, y_train_ids, label2id, id2label, max_length=max_length)
+	logger.info("Overfitting test PASSED! Model validated successfully.\n")
+	
+	# Save baseline transformer model after successful overfitting test
 	baseline_model_dir = os.path.join(models_dir, 'baseline_transformer_model')
 	Path(baseline_model_dir).mkdir(parents=True, exist_ok=True)
 	model.save_pretrained(baseline_model_dir)
 	tokenizer.save_pretrained(baseline_model_dir)
 	logger.info(f"Saved baseline transformer to {baseline_model_dir}")
 
+	# Datasets / Loaders for evaluation/reporting
+	val_loader = None
+	test_loader = None
+	criterion = nn.CrossEntropyLoss(label_smoothing=0.0)
+	
+	if X_val and y_val_ids:
+		val_ds = BaselineTransformerDataset(X_val, y_val_ids, tokenizer, max_length)
+		val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0)
+	if X_test and y_test_ids:
+		test_ds = BaselineTransformerDataset(X_test, y_test_ids, tokenizer, max_length)
+		test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=0)
 
 	def evaluate_and_save(split_name, loader, original_labels):
 		if loader is None or original_labels is None:

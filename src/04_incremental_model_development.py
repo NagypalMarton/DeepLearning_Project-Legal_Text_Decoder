@@ -601,23 +601,46 @@ def main():
         print(f"GPU: {gpu_name} | Total VRAM: {total_mem:.2f} GB")
     
     # Load tokenizer and model
-    print(f"Loading transformer model: {model_name}")
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    
-    # Create fusion or standard model based on configuration
-    if use_feature_fusion:
-        head_type = 'CORAL ordinal' if use_coral else 'standard classifier'
-        print(f"Creating FusionModel with readability features (standardized + MLP) + {head_type}")
-        base_model = AutoModel.from_pretrained(model_name)
-        pooling_mode = os.getenv('POOLING', 'mean')
-        model = FusionModel(base_model, num_classes=num_labels, feature_dim=8, pooling=pooling_mode, use_coral=use_coral)
+    baseline_dir = os.path.join(models_dir, 'baseline_transformer_model')
+    use_baseline = (not use_feature_fusion) and os.path.isdir(baseline_dir)
+    if use_baseline:
+        print(f"Loading baseline checkpoint from {baseline_dir} for fine-tuning")
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(baseline_dir)
+            model = AutoModelForSequenceClassification.from_pretrained(
+                baseline_dir,
+                num_labels=num_labels,
+                id2label=id2label,
+                label2id=label2id
+            )
+        except Exception as e:
+            print(f"Warning: failed to load baseline model, falling back to {model_name}: {e}")
+            print(f"Loading transformer model: {model_name}")
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model = AutoModelForSequenceClassification.from_pretrained(
+                model_name,
+                num_labels=num_labels,
+                id2label=id2label,
+                label2id=label2id
+            )
     else:
-        model = AutoModelForSequenceClassification.from_pretrained(
-            model_name,
-            num_labels=num_labels,
-            id2label=id2label,
-            label2id=label2id
-        )
+        print(f"Loading transformer model: {model_name}")
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        
+        # Create fusion or standard model based on configuration
+        if use_feature_fusion:
+            head_type = 'CORAL ordinal' if use_coral else 'standard classifier'
+            print(f"Creating FusionModel with readability features (standardized + MLP) + {head_type}")
+            base_model = AutoModel.from_pretrained(model_name)
+            pooling_mode = os.getenv('POOLING', 'mean')
+            model = FusionModel(base_model, num_classes=num_labels, feature_dim=8, pooling=pooling_mode, use_coral=use_coral)
+        else:
+            model = AutoModelForSequenceClassification.from_pretrained(
+                model_name,
+                num_labels=num_labels,
+                id2label=id2label,
+                label2id=label2id
+            )
     model.to(device)
 
     # Optional: gradient checkpointing
