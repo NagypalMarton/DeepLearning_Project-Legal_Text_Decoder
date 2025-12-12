@@ -23,16 +23,21 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from importlib import import_module
     inc_dev = import_module('04_incremental_model_development')
-    FusionModel = inc_dev.FusionModel
-    coral_predict = inc_dev.coral_predict
-    extract_readability_features = inc_dev.extract_readability_features
     normalize_label = inc_dev.normalize_label
 except Exception as e:
-    print(f"Warning: Could not import from 04_incremental_model_development: {e}")
-    FusionModel = None
-    coral_predict = None
-    extract_readability_features = None
+    print(f"Warning: Could not import normalize_label from 04_incremental_model_development: {e}")
     normalize_label = None
+
+
+def find_best_model(models_dir: str):
+    """Find and return path to best model checkpoint."""
+    models_path = Path(models_dir)
+    best_models = list(models_path.glob('best_*.pt'))
+    if not best_models:
+        raise FileNotFoundError(f"No best_*.pt checkpoints found in {models_dir}")
+    # Prefer Final_Balanced, fallback to latest best_*
+    final_balanced = [m for m in best_models if 'Final_Balanced' in m.name]
+    return str(final_balanced[0] if final_balanced else best_models[-1])
 
 
 def ensure_eval_dir(base_output: str):
@@ -157,52 +162,25 @@ def main():
 	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 	print(f"Using device: {device}")
 
-	# Load model and tokenizer
-	print(f"Loading transformer model from {model_path}...")
-	tokenizer = AutoTokenizer.from_pretrained(model_path)
+	# Find and load best model checkpoint
+	models_dir = os.path.join(base_output, 'models')
+	best_checkpoint_path = find_best_model(models_dir)
+	print(f"Loading best model checkpoint from {best_checkpoint_path}...")
 	
-	# Check if this is a FusionModel checkpoint
-	checkpoint_path = os.path.join(model_path, 'pytorch_model.bin')
-	use_fusion = False
-	use_coral = False
-	stats = None
+	# Load checkpoint
+	checkpoint = torch.load(best_checkpoint_path, map_location=device)
+	label2id = checkpoint['label2id']
+	id2label = {int(k): v for k, v in checkpoint['id2label'].items()}
 	
-	if os.path.exists(checkpoint_path) and FusionModel is not None:
-		try:
-			checkpoint = torch.load(checkpoint_path, map_location=device)
-			if isinstance(checkpoint, dict) and 'use_feature_fusion' in checkpoint:
-				use_fusion = checkpoint.get('use_feature_fusion', False)
-				use_coral = checkpoint.get('use_coral', False)
-				num_labels = checkpoint.get('num_labels', len(id2label))
-				
-				if use_fusion:
-					print(f"Loading FusionModel (CORAL={use_coral})...")
-					base_model = AutoModel.from_pretrained(model_path.replace('/best_transformer_model', '/baseline_transformer_model') if 'baseline' not in model_path else model_path)
-					if base_model is None:
-						model_name = os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc')
-						base_model = AutoModel.from_pretrained(model_name)
-					model = FusionModel(base_model, num_classes=num_labels, use_coral=use_coral)
-					model.load_state_dict(checkpoint['model_state_dict'])
-					model.to(device)
-					
-					# Load feature stats
-					metadata_path = os.path.join(model_path, 'metadata.json')
-					if os.path.exists(metadata_path):
-						with open(metadata_path, 'r') as f:
-							metadata = json.load(f)
-					else:
-						print("Warning: metadata.json not found, features may not be normalized correctly")
-				else:
-					raise ValueError("Checkpoint indicates fusion model but FusionModel class not available")
-		except Exception as e:
-			print(f"Could not load as FusionModel: {e}, falling back to standard model")
-			use_fusion = False
-	
-	if not use_fusion:
-		model = AutoModelForSequenceClassification.from_pretrained(model_path)
-		model.to(device)
-	
+	# Load base transformer model and create model instance
+	transformer_model_name = os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc')
+	model = AutoModelForSequenceClassification.from_pretrained(transformer_model_name, num_labels=len(id2label))
+	model.load_state_dict(checkpoint['model_state_dict'])
+	model.to(device)
 	model.eval()
+	
+	# Load tokenizer
+	tokenizer = AutoTokenizer.from_pretrained(transformer_model_name)
 
 	# Load test data
 	test_df = pd.read_csv(test_path)
@@ -231,21 +209,10 @@ def main():
 		for batch in tqdm(test_loader, desc="Evaluating", disable=disable_tqdm):
 			input_ids = batch['input_ids'].to(device)
 			attention_mask = batch['attention_mask'].to(device)
-			readability_features = batch.get('readability_features')
-			if readability_features is not None:
-				readability_features = readability_features.to(device)
 			
-			if use_fusion:
-				outputs = model(input_ids=input_ids, attention_mask=attention_mask, readability_features=readability_features)
-			else:
-				outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-			
+			outputs = model(input_ids=input_ids, attention_mask=attention_mask)
 			logits = outputs.logits
-			
-			if use_coral and coral_predict is not None:
-				preds = coral_predict(logits)
-			else:
-				preds = torch.argmax(logits, dim=1)
+			preds = torch.argmax(logits, dim=1)
 			
 			y_pred.extend([id2label[int(p)] for p in preds.cpu().numpy()])
 

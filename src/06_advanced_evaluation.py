@@ -21,18 +21,16 @@ import matplotlib.pyplot as plt  # noqa: E402
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-try:
-    from importlib import import_module
 
-    inc_dev = import_module("04_incremental_model_development")
-    FusionModel = inc_dev.FusionModel
-    coral_predict = inc_dev.coral_predict
-    extract_readability_features = inc_dev.extract_readability_features
-except Exception as exc:  # pragma: no cover - defensive
-    print(f"Warning: could not import from 04_incremental_model_development: {exc}")
-    FusionModel = None
-    coral_predict = None
-    extract_readability_features = None
+
+def find_best_model(models_dir: Path) -> Path:
+    """Find and return path to best model checkpoint."""
+    best_models = list(models_dir.glob('best_*.pt'))
+    if not best_models:
+        raise FileNotFoundError(f"No best_*.pt checkpoints found in {models_dir}")
+    # Prefer Final_Balanced, fallback to latest best_*
+    final_balanced = [m for m in best_models if 'Final_Balanced' in m.name]
+    return final_balanced[0] if final_balanced else best_models[-1]
 
 
 # ---------------------------------------------------------------------------
@@ -98,16 +96,13 @@ def predict_batch(
     *,
     batch_size: int = 8,
     id2label: Optional[Dict[int, str]] = None,
-    use_fusion: bool = False,
-    use_coral: bool = False,
-    stats: Optional[Dict[str, List[float]]] = None,
     max_length: int = 384,
     return_probs: bool = False,
 ):
     """Run batched inference and optionally return probabilities."""
 
     dataset = TransformerDataset(
-        texts, tokenizer, max_length=max_length, use_features=use_fusion, stats=stats
+        texts, tokenizer, max_length=max_length, use_features=False, stats=None
     )
     dataloader = DataLoader(
         dataset,
@@ -126,27 +121,13 @@ def predict_batch(
         for batch in dataloader:
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
-            readability_features = batch.get("readability_features")
-            if readability_features is not None:
-                readability_features = readability_features.to(device)
 
-            if use_fusion:
-                outputs = model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    readability_features=readability_features,
-                )
-            else:
-                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
 
             logits = outputs.logits
 
-            if use_coral and coral_predict is not None:
-                preds = coral_predict(logits)
-                probs = torch.sigmoid(logits)
-            else:
-                preds = torch.argmax(logits, dim=1)
-                probs = torch.softmax(logits, dim=1)
+            preds = torch.argmax(logits, dim=1)
+            probs = torch.softmax(logits, dim=1)
 
             if id2label:
                 predictions.extend([id2label[int(p)] for p in preds.cpu().numpy()])
@@ -196,60 +177,30 @@ def load_label_mapping(models_dir: Path) -> Dict[int, str]:
 
 
 def load_model_bundle(models_dir: Path, device: torch.device):
-    """Load tokenizer + model (+ fusion metadata) from disk."""
+    """Load tokenizer + model from disk using best checkpoint."""
 
-    model_dir = models_dir / "best_transformer_model"
-    if not model_dir.is_dir():
-        raise FileNotFoundError(f"Transformer model not found at {model_dir}")
-
-    id2label = load_label_mapping(models_dir)
-    tokenizer = AutoTokenizer.from_pretrained(model_dir)
-
-    checkpoint_path = model_dir / "pytorch_model.bin"
-    use_fusion = False
-    use_coral = False
-    stats = None
-
-    if checkpoint_path.exists() and FusionModel is not None:
-        try:
-            checkpoint = torch.load(checkpoint_path, map_location=device)
-            if isinstance(checkpoint, dict) and "use_feature_fusion" in checkpoint:
-                use_fusion = bool(checkpoint.get("use_feature_fusion", False))
-                use_coral = bool(checkpoint.get("use_coral", False))
-                num_labels = int(checkpoint.get("num_labels", len(id2label)))
-
-                if use_fusion:
-                    print(f"Loading FusionModel (CORAL={use_coral})...")
-                    base_model = AutoModel.from_pretrained(
-                        os.getenv("TRANSFORMER_MODEL", "SZTAKI-HLT/hubert-base-cc")
-                    )
-                    model = FusionModel(base_model, num_classes=num_labels, use_coral=use_coral)
-                    model.load_state_dict(checkpoint["model_state_dict"])
-                    model.to(device)
-
-                    metadata_path = model_dir / "metadata.json"
-                    if metadata_path.exists():
-                        with open(metadata_path, "r", encoding="utf-8") as f:
-                            metadata = json.load(f)
-                        stats = metadata.get("feature_stats") or metadata.get("stats")
-                else:
-                    raise ValueError("Checkpoint indicates fusion model but FusionModel class not available")
-        except Exception as exc:  # pragma: no cover - defensive
-            print(f"Could not load fusion checkpoint: {exc}; falling back to standard model")
-            use_fusion = False
-
-    if not use_fusion:
-        model = AutoModelForSequenceClassification.from_pretrained(model_dir)
-        model.to(device)
-
+    # Find best checkpoint
+    checkpoint_path = find_best_model(models_dir)
+    print(f"Loading best model checkpoint: {checkpoint_path}")
+    
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    label2id = checkpoint['label2id']
+    id2label = {int(k): v for k, v in checkpoint['id2label'].items()}
+    
+    # Load base transformer model and create model instance
+    transformer_model_name = os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc')
+    model = AutoModelForSequenceClassification.from_pretrained(transformer_model_name, num_labels=len(id2label))
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.to(device)
     model.eval()
+    
+    # Load tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(transformer_model_name)
+    
     return {
         "model": model,
         "tokenizer": tokenizer,
         "id2label": id2label,
-        "use_fusion": use_fusion,
-        "use_coral": use_coral,
-        "stats": stats,
     }
 
 
@@ -306,9 +257,6 @@ def evaluate_robustness(
     model = bundle["model"]
     tokenizer = bundle["tokenizer"]
     id2label = bundle["id2label"]
-    use_fusion = bundle["use_fusion"]
-    use_coral = bundle["use_coral"]
-    stats = bundle["stats"]
 
     results = []
     for test in perturbations:
@@ -402,9 +350,6 @@ def get_attention_based_importance(
     labels: Sequence[str],
     device: torch.device,
     n_examples: int,
-    use_fusion: bool,
-    use_coral: bool,
-    stats: Optional[Dict[str, List[float]]],
     max_length: int,
 ):
     """Extract top attended tokens for a handful of examples."""
@@ -423,43 +368,14 @@ def get_attention_based_importance(
         input_ids = encoding["input_ids"].to(device)
         attention_mask_tensor = encoding["attention_mask"].to(device)
 
-        readability_features = None
-        if use_fusion and extract_readability_features is not None:
-            feat = extract_readability_features(text).unsqueeze(0)
-            if stats:
-                mean = torch.tensor(stats.get("mean", []), dtype=torch.float32)
-                std = torch.tensor(stats.get("std", []), dtype=torch.float32)
-                feat = (feat - mean) / (std + 1e-6)
-            readability_features = feat.to(device)
-
         with torch.no_grad():
-            if use_fusion:
-                transformer_outputs = model.transformer(
-                    input_ids=input_ids, attention_mask=attention_mask_tensor, output_attentions=True, return_dict=True
-                )
-                attentions = transformer_outputs.attentions
-                hidden = transformer_outputs.last_hidden_state
-                pooled = model._pool(hidden, attention_mask_tensor)
-                if readability_features is not None:
-                    feat_out = model.feature_branch(readability_features)
-                else:
-                    feat_out = torch.zeros(pooled.size(0), 32, device=pooled.device)
-                fused = torch.cat([pooled, feat_out], dim=1)
-                x = model.dropout(F.gelu(model.fusion_fc(fused)))
-                logits = model.coral_head(x) if use_coral else model.classifier(x)
-            else:
-                outputs = model(
-                    input_ids=input_ids, attention_mask=attention_mask_tensor, output_attentions=True, return_dict=True
-                )
-                logits = outputs.logits
-                attentions = outputs.attentions
-
-            if use_coral and coral_predict is not None:
-                pred_class = int(coral_predict(logits)[0])
-                probs = torch.sigmoid(logits)[0]
-            else:
-                pred_class = int(torch.argmax(logits, dim=1))
-                probs = torch.softmax(logits, dim=1)[0]
+            outputs = model(
+                input_ids=input_ids, attention_mask=attention_mask_tensor, output_attentions=True, return_dict=True
+            )
+            logits = outputs.logits
+            attentions = outputs.attentions
+            pred_class = int(torch.argmax(logits, dim=1)[0])
+            probs = torch.softmax(logits, dim=1)[0]
 
             avg_attention = torch.stack([att.mean(dim=1) for att in attentions]).mean(dim=0)[0]
             tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
@@ -601,9 +517,6 @@ def run_explainability_flow(args, bundle, texts, labels, output_root: Path):
         args.device,
         batch_size=args.batch_size,
         id2label=bundle["id2label"],
-        use_fusion=bundle["use_fusion"],
-        use_coral=bundle["use_coral"],
-        stats=bundle["stats"],
         max_length=args.max_length,
         return_probs=False,
     ), None
@@ -618,9 +531,6 @@ def run_explainability_flow(args, bundle, texts, labels, output_root: Path):
             labels=labels,
             device=args.device,
             n_examples=min(args.sample_count, len(texts)),
-            use_fusion=bundle["use_fusion"],
-            use_coral=bundle["use_coral"],
-            stats=bundle["stats"],
             max_length=args.max_length,
         )
     except Exception as exc:  # pragma: no cover - defensive

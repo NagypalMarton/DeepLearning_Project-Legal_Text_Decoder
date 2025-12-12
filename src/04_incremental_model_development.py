@@ -2,6 +2,8 @@ import os
 import json
 from pathlib import Path
 import random
+import shutil
+import argparse
 
 import numpy as np
 import math
@@ -472,6 +474,7 @@ def plot_model_comparison(all_results, save_path):
     axes[0, 1].axhline(y=0.10, color='red', linestyle='--', label='10% threshold')
     axes[0, 1].set_ylabel('Train - Val Accuracy Gap')
     axes[0, 1].set_title('Overfitting Analysis (Lower is Better)')
+    axes[0, 1].set_xticks(range(len(model_names)))
     axes[0, 1].set_xticklabels(model_names, rotation=15, ha='right')
     axes[0, 1].legend()
     axes[0, 1].grid(True, alpha=0.3)
@@ -481,6 +484,7 @@ def plot_model_comparison(all_results, save_path):
     axes[1, 0].bar(model_names, epochs_to_best, color='#9b59b6')
     axes[1, 0].set_ylabel('Epochs')
     axes[1, 0].set_title('Training Epochs (Convergence Speed)')
+    axes[1, 0].set_xticks(range(len(model_names)))
     axes[1, 0].set_xticklabels(model_names, rotation=15, ha='right')
     axes[1, 0].grid(True, alpha=0.3)
     
@@ -597,14 +601,35 @@ def train_single_model(model_config, base_transformer, tokenizer, train_loader, 
     }
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Progressive model training with optional subset exploration")
+    parser.add_argument("--transformer_model", default="SZTAKI-HLT/hubert-base-cc", help="Base transformer model name")
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--epochs", type=int, default=15)
+    parser.add_argument("--learning_rate", type=float, default=1.5e-5)
+    parser.add_argument("--weight_decay", type=float, default=0.01)
+    parser.add_argument("--max_length", type=int, default=320)
+    parser.add_argument("--label_smoothing", type=float, default=0.02)
+    parser.add_argument("--early_stopping_patience", type=int, default=3)
+    parser.add_argument("--num_workers", type=int, default=2)
+    parser.add_argument("--grad_acc_steps", type=int, default=2)
+    parser.add_argument("--output_dir", default="/app/output", help="Base output directory")
+    parser.add_argument("--subset_fraction", type=float, default=0.2, help="Fraction of train/val used for exploration")
+    parser.add_argument("--final_train_winner_only", action="store_true", default=True, help="Retrain only winner on full data (default True)")
+    parser.add_argument("--balanced_subset", action="store_true", default=True, help="Use equal per-class sampling for subset (default True)")
+    parser.add_argument("--random_seed", type=int, default=42)
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     # Set random seed
-    seed = int(os.getenv('RANDOM_SEED', '42'))
+    seed = args.random_seed
     set_seed(seed)
     print(f"Random seed set to {seed}")
     
     # Configuration
-    base_output = os.getenv('OUTPUT_DIR', '/app/output')
+    base_output = args.output_dir
     processed_dir = os.path.join(base_output, 'processed')
     models_dir = os.path.join(base_output, 'models')
     reports_dir = os.path.join(base_output, 'reports')
@@ -613,16 +638,20 @@ def main():
     Path(reports_dir).mkdir(parents=True, exist_ok=True)
     
     # Hyperparameters
-    model_name = os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc')
-    batch_size = int(os.getenv('BATCH_SIZE', '8'))
-    epochs = int(os.getenv('EPOCHS', '15'))
-    learning_rate = float(os.getenv('LEARNING_RATE', '1.5e-5'))
-    weight_decay = float(os.getenv('WEIGHT_DECAY', '0.01'))
-    max_length = int(os.getenv('MAX_LENGTH', '320'))
-    label_smoothing = float(os.getenv('LABEL_SMOOTHING', '0.02'))
-    early_stopping_patience = int(os.getenv('EARLY_STOPPING_PATIENCE', '3'))
-    num_workers = int(os.getenv('NUM_WORKERS', '2'))
-    grad_acc_steps = int(os.getenv('GRAD_ACC_STEPS', '2'))
+    model_name = args.transformer_model
+    batch_size = args.batch_size
+    epochs = args.epochs
+    learning_rate = args.learning_rate
+    weight_decay = args.weight_decay
+    max_length = args.max_length
+    label_smoothing = args.label_smoothing
+    early_stopping_patience = args.early_stopping_patience
+    num_workers = args.num_workers
+    grad_acc_steps = args.grad_acc_steps
+    # Subset exploration + final winner training controls
+    subset_fraction = args.subset_fraction  # fraction of train/val used for exploration
+    final_train_winner_only = args.final_train_winner_only
+    balanced_subset = args.balanced_subset  # if true, use equal class counts in subset
     
     print(f"\n{'='*80}")
     print(f"PROGRESSIVE MODEL EXPANSION TRAINING")
@@ -631,12 +660,39 @@ def main():
     print(f"Batch Size: {batch_size} | Epochs: {epochs} | LR: {learning_rate}")
     print(f"Weight Decay: {weight_decay} | Label Smoothing: {label_smoothing}")
     print(f"Early Stopping Patience: {early_stopping_patience}")
+    print(f"Subset Fraction: {subset_fraction} | Final Train Winner Only: {final_train_winner_only} | Balanced Subset: {balanced_subset}")
     print(f"{'='*80}\n")
     
     # Load data
     print(f"Loading data from {processed_dir}")
     train_df, val_df, test_df = load_split_csv(processed_dir)
     
+    # Optional stratified subset for fast exploration
+    if subset_fraction < 1.0:
+        print(f"\n{'='*80}")
+        print(f"SUBSET MODE: Using {subset_fraction*100:.1f}% of training/validation data for exploration")
+        print(f"{'='*80}\n")
+        def _stratified_sample(df, label_col, frac, seed, balanced=False):
+            if df is None or len(df) == 0:
+                return df
+            g = df.groupby(label_col, group_keys=False)
+            if not balanced:
+                # Standard stratified sampling by fraction
+                return g.apply(lambda grp: grp.sample(frac=frac, random_state=seed))
+            # Balanced sampling: equal count per class based on the smallest class size
+            class_counts = g.size()
+            min_count = int(class_counts.min())
+            target_per_class = max(1, int(min_count * frac))
+            # Sample exactly target_per_class per class (or all rows if class too small)
+            return g.apply(lambda grp: grp.sample(n=min(target_per_class, len(grp)), random_state=seed))
+
+        train_df = _stratified_sample(train_df, 'label', subset_fraction, 42, balanced_subset)
+        if val_df is not None and len(val_df) > 0:
+            val_df = _stratified_sample(val_df, 'label', subset_fraction, 42, balanced_subset)
+        print(f"Train size after subset: {len(train_df)}")
+        if val_df is not None:
+            print(f"Val size after subset: {len(val_df)}")
+
     # Prepare labels
     y_train_str = train_df['label'].astype(str).tolist()
     y_train, label2id, id2label = build_ordinal_mapping(y_train_str)
@@ -786,14 +842,118 @@ def main():
     comparison_plot_path = os.path.join(reports_dir, '04-model_expansion_comparison.png')
     plot_model_comparison(all_results, comparison_plot_path)
     
+    # Identify best model from exploration
+    best_name, best_result = max(all_results.items(), key=lambda kv: kv[1]['val_weighted_f1'])
+    print(f"\n{'='*80}")
+    print(f"BEST MODEL IDENTIFIED (exploration): {best_name}")
+    print(f"Val Weighted F1: {best_result['val_weighted_f1']:.4f}")
+    print(f"{'='*80}")
+
+    # Export generic pointers for downstream pipeline (05/06)
+    best_overall_path = os.path.join(models_dir, 'best_overall.json')
+    with open(best_overall_path, 'w', encoding='utf-8') as f:
+        json.dump({
+            'best_model_name': best_name,
+            'best_checkpoint': best_result['best_checkpoint'],
+            'val_weighted_f1': best_result['val_weighted_f1']
+        }, f, ensure_ascii=False, indent=2)
+    try:
+        shutil.copyfile(best_result['best_checkpoint'], os.path.join(models_dir, 'best_model.pt'))
+    except Exception as _copy_exc:
+        print(f"Warning: could not copy generic best_model.pt: {_copy_exc}")
+
+    # Optional: retrain winner on FULL dataset for final production checkpoint
+    if subset_fraction < 1.0 and final_train_winner_only:
+        print(f"\n{'='*80}")
+        print(f"FINAL TRAINING: Retraining winner '{best_name}' on FULL dataset")
+        print(f"{'='*80}\n")
+
+        # Reload full data
+        train_df_full, val_df_full, test_df_full = load_split_csv(processed_dir)
+
+        # Rebuild label mapping on full train
+        y_train_str_full = train_df_full['label'].astype(str).tolist()
+        y_train_full, label2id_full, id2label_full = build_ordinal_mapping(y_train_str_full)
+
+        X_train_full = train_df_full['text'].astype(str).tolist()
+        train_dataset_full = LegalTextDataset(X_train_full, y_train_full, tokenizer, max_length)
+        train_loader_full = DataLoader(
+            train_dataset_full,
+            batch_size=batch_size,
+            shuffle=True,
+            pin_memory=device.type=='cuda',
+            num_workers=num_workers,
+            persistent_workers=num_workers > 0,
+            prefetch_factor=2 if num_workers > 0 else None
+        )
+
+        val_loader_full = None
+        if val_df_full is not None:
+            y_val_str_full = val_df_full['label'].astype(str).tolist()
+            y_val_numeric_full = [normalize_label(label) for label in y_val_str_full]
+            y_val_full = [label2id_full[n] for n in y_val_numeric_full]
+            X_val_full = val_df_full['text'].astype(str).tolist()
+            val_dataset_full = LegalTextDataset(X_val_full, y_val_full, tokenizer, max_length)
+            val_loader_full = DataLoader(
+                val_dataset_full,
+                batch_size=batch_size,
+                shuffle=False,
+                pin_memory=device.type=='cuda',
+                num_workers=num_workers,
+                persistent_workers=num_workers > 0
+            )
+
+        # Fresh base transformer and retrain only the winner
+        from transformers import AutoModel
+        base_transformer_final = AutoModel.from_pretrained(model_name)
+        winner_config = None
+        for cfg in model_configs:
+            if cfg['name'] == best_name:
+                winner_config = cfg
+                break
+        final_result = train_single_model(
+            model_config=winner_config,
+            base_transformer=base_transformer_final,
+            tokenizer=tokenizer,
+            train_loader=train_loader_full,
+            val_loader=val_loader_full,
+            device=device,
+            criterion=criterion,
+            label2id=label2id_full,
+            id2label=id2label_full,
+            models_dir=models_dir,
+            reports_dir=reports_dir,
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            epochs=epochs,
+            early_stopping_patience=early_stopping_patience,
+            grad_acc_steps=grad_acc_steps
+        )
+
+        # Update generic best pointers to the full-data checkpoint
+        with open(best_overall_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                'best_model_name': best_name,
+                'best_checkpoint': final_result['best_checkpoint'],
+                'val_weighted_f1': final_result['val_weighted_f1']
+            }, f, ensure_ascii=False, indent=2)
+        try:
+            shutil.copyfile(final_result['best_checkpoint'], os.path.join(models_dir, 'best_model.pt'))
+        except Exception as _copy_exc2:
+            print(f"Warning: could not copy generic best_model.pt: {_copy_exc2}")
+
+        # Clean up
+        del base_transformer_final
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
     print(f"\n{'='*80}")
     print(f"✓ PROGRESSIVE MODEL EXPANSION COMPLETE")
     print(f"{'='*80}")
     print(f"\nBest model checkpoints:")
     for name, result in all_results.items():
         print(f"  - {name}: {result['best_checkpoint']}")
-    print(f"\n✓ PRODUCTION RECOMMENDED: Final_Balanced model")
-    print(f"  Val Weighted F1: {all_results['Final_Balanced']['val_weighted_f1']:.4f}")
+    print(f"\n✓ PRODUCTION RECOMMENDED: {best_name}")
+    print(f"  Val Weighted F1: {max(all_results.items(), key=lambda kv: kv[1]['val_weighted_f1'])[1]['val_weighted_f1']:.4f}")
 
 
 if __name__ == '__main__':
