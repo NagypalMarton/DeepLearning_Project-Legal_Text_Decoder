@@ -678,13 +678,13 @@ def main():
             g = df.groupby(label_col, group_keys=False)
             if not balanced:
                 # Standard stratified sampling by fraction
-                return g.apply(lambda grp: grp.sample(frac=frac, random_state=seed))
+                return g.apply(lambda grp: grp.sample(frac=frac, random_state=seed), include_groups=False)
             # Balanced sampling: equal count per class based on the smallest class size
             class_counts = g.size()
             min_count = int(class_counts.min())
             target_per_class = max(1, int(min_count * frac))
             # Sample exactly target_per_class per class (or all rows if class too small)
-            return g.apply(lambda grp: grp.sample(n=min(target_per_class, len(grp)), random_state=seed))
+            return g.apply(lambda grp: grp.sample(n=min(target_per_class, len(grp)), random_state=seed), include_groups=False)
 
         train_df = _stratified_sample(train_df, 'label', subset_fraction, 42, balanced_subset)
         if val_df is not None and len(val_df) > 0:

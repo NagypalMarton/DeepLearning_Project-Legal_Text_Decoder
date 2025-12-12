@@ -177,26 +177,37 @@ def load_label_mapping(models_dir: Path) -> Dict[int, str]:
 
 
 def load_model_bundle(models_dir: Path, device: torch.device):
-    """Load tokenizer + model from disk using best checkpoint."""
+    """Load tokenizer + the exact trained architecture from checkpoint."""
 
     # Find best checkpoint
     checkpoint_path = find_best_model(models_dir)
     print(f"Loading best model checkpoint: {checkpoint_path}")
-    
+
     checkpoint = torch.load(checkpoint_path, map_location=device)
-    label2id = checkpoint['label2id']
     id2label = {int(k): v for k, v in checkpoint['id2label'].items()}
-    
-    # Load base transformer model and create model instance
+
+    # Choose matching model class based on filename
+    from importlib import import_module
+    inc = import_module('04_incremental_model_development')
     transformer_model_name = os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc')
-    model = AutoModelForSequenceClassification.from_pretrained(transformer_model_name, num_labels=len(id2label))
+    base_transformer = AutoModel.from_pretrained(transformer_model_name)
+
+    fname = Path(checkpoint_path).name
+    if 'final_balanced' in fname:
+        model = inc.BalancedFinalModel(base_transformer, num_classes=len(id2label))
+    elif 'step3_advanced' in fname:
+        model = inc.Step3_AdvancedModel(base_transformer, num_classes=len(id2label))
+    elif 'step2_extended' in fname:
+        model = inc.Step2_ExtendedModel(base_transformer, num_classes=len(id2label))
+    else:
+        model = inc.Step1_BaselineModel(base_transformer, num_classes=len(id2label))
+
     model.load_state_dict(checkpoint['model_state_dict'])
     model.to(device)
     model.eval()
-    
-    # Load tokenizer
+
     tokenizer = AutoTokenizer.from_pretrained(transformer_model_name)
-    
+
     return {
         "model": model,
         "tokenizer": tokenizer,
@@ -272,9 +283,6 @@ def evaluate_robustness(
             device,
             batch_size=batch_size,
             id2label=id2label,
-            use_fusion=use_fusion,
-            use_coral=use_coral,
-            stats=stats,
             max_length=max_length,
         )
 
