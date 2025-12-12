@@ -96,6 +96,232 @@ def build_ordinal_mapping(labels):
     return encoded, label2id, id2label
 
 
+# ============================================================================
+# Progressive Model Architectures
+# ============================================================================
+
+class Step1_BaselineModel(nn.Module):
+    """Step 1: Minimal baseline - Transformer + single linear classifier.
+    
+    Architecture:
+    - Pretrained transformer (frozen or fine-tuned)
+    - CLS pooling
+    - Single linear layer
+    - Minimal regularization (only weight decay from optimizer)
+    
+    Purpose: Validate basic capacity without overfitting.
+    """
+    def __init__(self, transformer_model, num_classes=5):
+        super().__init__()
+        self.transformer = transformer_model
+        self.num_classes = num_classes
+        hidden_size = transformer_model.config.hidden_size
+        self.classifier = nn.Linear(hidden_size, num_classes)
+    
+    def forward(self, input_ids, attention_mask, labels=None):
+        outputs = self.transformer(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=False,
+            return_dict=True
+        )
+        # CLS token pooling
+        pooled = outputs.last_hidden_state[:, 0, :]
+        logits = self.classifier(pooled)
+        
+        output = type('Output', (), {'logits': logits})()
+        if labels is not None:
+            output.loss = nn.CrossEntropyLoss()(logits, labels)
+        return output
+
+
+class Step2_ExtendedModel(nn.Module):
+    """Step 2: Extended - 2-layer adapter + BatchNorm + Dropout.
+    
+    Architecture:
+    - Pretrained transformer
+    - CLS pooling
+    - 2-layer adapter network (hidden_dim=256)
+    - BatchNorm for stabilization
+    - Dropout(0.3) for regularization
+    - GELU activation
+    
+    Purpose: Add moderate capacity with basic regularization.
+    """
+    def __init__(self, transformer_model, num_classes=5, hidden_dim=256, dropout=0.3):
+        super().__init__()
+        self.transformer = transformer_model
+        self.num_classes = num_classes
+        trans_hidden = transformer_model.config.hidden_size
+        
+        self.adapter = nn.Sequential(
+            nn.Linear(trans_hidden, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.BatchNorm1d(hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(dropout)
+        )
+        self.classifier = nn.Linear(hidden_dim // 2, num_classes)
+    
+    def forward(self, input_ids, attention_mask, labels=None):
+        outputs = self.transformer(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=False,
+            return_dict=True
+        )
+        pooled = outputs.last_hidden_state[:, 0, :]
+        adapted = self.adapter(pooled)
+        logits = self.classifier(adapted)
+        
+        output = type('Output', (), {'logits': logits})()
+        if labels is not None:
+            output.loss = nn.CrossEntropyLoss()(logits, labels)
+        return output
+
+
+class Step3_AdvancedModel(nn.Module):
+    """Step 3: Advanced - Attention pooling + 3-layer adapter + gating.
+    
+    Architecture:
+    - Pretrained transformer
+    - Multi-head attention pooling (learns important tokens)
+    - 3-layer deep adapter network
+    - Gating mechanism (residual connection)
+    - LayerNorm + Dropout(0.4)
+    - GELU activation
+    
+    Purpose: Maximum capacity with advanced regularization.
+    """
+    def __init__(self, transformer_model, num_classes=5, hidden_dim=256, dropout=0.4, num_heads=4):
+        super().__init__()
+        self.transformer = transformer_model
+        self.num_classes = num_classes
+        trans_hidden = transformer_model.config.hidden_size
+        
+        # Attention pooling
+        self.attention_pool = nn.MultiheadAttention(
+            embed_dim=trans_hidden,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True
+        )
+        self.query = nn.Parameter(torch.randn(1, 1, trans_hidden))
+        
+        # 3-layer adapter with residual gating
+        self.adapter_1 = nn.Sequential(
+            nn.Linear(trans_hidden, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout)
+        )
+        self.adapter_2 = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout)
+        )
+        self.adapter_3 = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.LayerNorm(hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(dropout)
+        )
+        
+        # Gating for residual connection
+        self.gate = nn.Linear(hidden_dim, hidden_dim)
+        self.classifier = nn.Linear(hidden_dim // 2, num_classes)
+    
+    def forward(self, input_ids, attention_mask, labels=None):
+        outputs = self.transformer(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=False,
+            return_dict=True
+        )
+        hidden = outputs.last_hidden_state  # [B, L, H]
+        
+        # Attention pooling
+        batch_size = hidden.size(0)
+        query = self.query.expand(batch_size, -1, -1)
+        pooled, _ = self.attention_pool(query, hidden, hidden, key_padding_mask=~attention_mask.bool())
+        pooled = pooled.squeeze(1)  # [B, H]
+        
+        # 3-layer adapter with gating
+        x = self.adapter_1(pooled)
+        residual = x
+        x = self.adapter_2(x)
+        # Gating mechanism
+        gate = torch.sigmoid(self.gate(x))
+        x = gate * x + (1 - gate) * residual
+        x = self.adapter_3(x)
+        
+        logits = self.classifier(x)
+        
+        output = type('Output', (), {'logits': logits})()
+        if labels is not None:
+            output.loss = nn.CrossEntropyLoss()(logits, labels)
+        return output
+
+
+class BalancedFinalModel(nn.Module):
+    """Final: Balanced - Production-ready model with best practices.
+    
+    Architecture:
+    - Pretrained transformer
+    - Mean pooling (more robust than CLS)
+    - 2-layer adapter (balanced complexity)
+    - LayerNorm (better than BatchNorm for variable batch sizes)
+    - Moderate Dropout(0.3)
+    - GELU activation
+    - Gradient clipping in training
+    
+    Purpose: PRODUCTION RECOMMENDED - Best balance of performance and robustness.
+    """
+    def __init__(self, transformer_model, num_classes=5, hidden_dim=256, dropout=0.3):
+        super().__init__()
+        self.transformer = transformer_model
+        self.num_classes = num_classes
+        trans_hidden = transformer_model.config.hidden_size
+        
+        self.adapter = nn.Sequential(
+            nn.Linear(trans_hidden, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.LayerNorm(hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(dropout)
+        )
+        self.classifier = nn.Linear(hidden_dim // 2, num_classes)
+    
+    def forward(self, input_ids, attention_mask, labels=None):
+        outputs = self.transformer(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=False,
+            return_dict=True
+        )
+        hidden = outputs.last_hidden_state  # [B, L, H]
+        
+        # Mean pooling (more robust than CLS)
+        mask = attention_mask.unsqueeze(-1)  # [B, L, 1]
+        summed = (hidden * mask).sum(1)  # [B, H]
+        counts = mask.sum(1).clamp(min=1)  # [B, 1]
+        pooled = summed / counts
+        
+        adapted = self.adapter(pooled)
+        logits = self.classifier(adapted)
+        
+        output = type('Output', (), {'logits': logits})()
+        if labels is not None:
+            output.loss = nn.CrossEntropyLoss()(logits, labels)
+        return output
+
 
 
 
@@ -217,13 +443,167 @@ def plot_training_history(history, save_path):
     plt.close(fig)
 
 
+def plot_model_comparison(all_results, save_path):
+    """Plot comparison of all 4 models' performance."""
+    model_names = list(all_results.keys())
+    
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    # Plot 1: Val Accuracy Comparison
+    val_accs = [all_results[name]['val_acc'] for name in model_names]
+    train_accs = [all_results[name]['train_acc'] for name in model_names]
+    
+    x = np.arange(len(model_names))
+    width = 0.35
+    axes[0, 0].bar(x - width/2, train_accs, width, label='Train Acc', color='#3498db')
+    axes[0, 0].bar(x + width/2, val_accs, width, label='Val Acc', color='#e74c3c')
+    axes[0, 0].set_ylabel('Accuracy')
+    axes[0, 0].set_title('Train vs Val Accuracy Comparison')
+    axes[0, 0].set_xticks(x)
+    axes[0, 0].set_xticklabels(model_names, rotation=15, ha='right')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    # Plot 2: Train-Val Gap (Overfitting Indicator)
+    gaps = [all_results[name]['train_acc'] - all_results[name]['val_acc'] for name in model_names]
+    colors = ['#2ecc71' if g < 0.05 else '#f39c12' if g < 0.10 else '#e74c3c' for g in gaps]
+    axes[0, 1].bar(model_names, gaps, color=colors)
+    axes[0, 1].axhline(y=0.05, color='orange', linestyle='--', label='5% threshold')
+    axes[0, 1].axhline(y=0.10, color='red', linestyle='--', label='10% threshold')
+    axes[0, 1].set_ylabel('Train - Val Accuracy Gap')
+    axes[0, 1].set_title('Overfitting Analysis (Lower is Better)')
+    axes[0, 1].set_xticklabels(model_names, rotation=15, ha='right')
+    axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    # Plot 3: Convergence Speed (Epochs to Best)
+    epochs_to_best = [all_results[name]['epochs_trained'] for name in model_names]
+    axes[1, 0].bar(model_names, epochs_to_best, color='#9b59b6')
+    axes[1, 0].set_ylabel('Epochs')
+    axes[1, 0].set_title('Training Epochs (Convergence Speed)')
+    axes[1, 0].set_xticklabels(model_names, rotation=15, ha='right')
+    axes[1, 0].grid(True, alpha=0.3)
+    
+    # Plot 4: F1 Scores Comparison
+    macro_f1s = [all_results[name]['val_macro_f1'] for name in model_names]
+    weighted_f1s = [all_results[name]['val_weighted_f1'] for name in model_names]
+    
+    x = np.arange(len(model_names))
+    axes[1, 1].bar(x - width/2, macro_f1s, width, label='Macro F1', color='#1abc9c')
+    axes[1, 1].bar(x + width/2, weighted_f1s, width, label='Weighted F1', color='#34495e')
+    axes[1, 1].set_ylabel('F1 Score')
+    axes[1, 1].set_title('F1 Score Comparison')
+    axes[1, 1].set_xticks(x)
+    axes[1, 1].set_xticklabels(model_names, rotation=15, ha='right')
+    axes[1, 1].legend()
+    axes[1, 1].grid(True, alpha=0.3)
+    
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Model comparison plot saved to {save_path}")
+
+
+def train_single_model(model_config, base_transformer, tokenizer, train_loader, val_loader, 
+                      device, criterion, label2id, id2label, models_dir, reports_dir, 
+                      learning_rate, weight_decay, epochs, early_stopping_patience, grad_acc_steps):
+    """Train a single model configuration and return results."""
+    
+    model_name = model_config['name']
+    model_class = model_config['class']
+    num_classes = len(label2id)
+    
+    print(f"\n{'='*80}")
+    print(f"Training {model_name}")
+    print(f"Architecture: {model_config['description']}")
+    print(f"{'='*80}\n")
+    
+    # Create model
+    model = model_class(base_transformer, num_classes=num_classes)
+    model.to(device)
+    
+    # Optimizer and scheduler
+    optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    effective_steps_per_epoch = math.ceil(len(train_loader) / max(1, grad_acc_steps))
+    total_steps = effective_steps_per_epoch * epochs
+    warmup_steps = int(0.15 * total_steps)
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_steps)
+    
+    # Training loop
+    history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': [], 'val_macro_f1': [], 'val_weighted_f1': []}
+    best_metric_val = -float('inf')
+    no_improve_epochs = 0
+    best_model_path = os.path.join(models_dir, f'best_{model_name.lower().replace(" ", "_")}.pt')
+    
+    for epoch in range(epochs):
+        print(f"Epoch {epoch + 1}/{epochs}")
+        
+        train_loss, train_acc = train_epoch(model, train_loader, optimizer, scheduler, device, criterion, grad_acc_steps)
+        history['train_loss'].append(train_loss)
+        history['train_acc'].append(train_acc)
+        
+        print(f"Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.4f}")
+        
+        if val_loader is not None:
+            val_loss, val_acc, val_preds, val_trues = evaluate(model, val_loader, device, criterion)
+            history['val_loss'].append(val_loss)
+            history['val_acc'].append(val_acc)
+            val_macro_f1 = f1_score(val_trues, val_preds, average='macro')
+            val_weighted_f1 = f1_score(val_trues, val_preds, average='weighted')
+            history['val_macro_f1'].append(val_macro_f1)
+            history['val_weighted_f1'].append(val_weighted_f1)
+            print(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}, Val Macro-F1: {val_macro_f1:.4f}, Val Weighted-F1: {val_weighted_f1:.4f}")
+            
+            # Early stopping based on val_weighted_f1
+            current = val_weighted_f1
+            if current > best_metric_val + 1e-4:
+                best_metric_val = current
+                no_improve_epochs = 0
+                # Save best checkpoint
+                checkpoint = {
+                    'model_state_dict': model.state_dict(),
+                    'val_weighted_f1': best_metric_val,
+                    'label2id': label2id,
+                    'id2label': id2label,
+                    'epoch': epoch + 1
+                }
+                torch.save(checkpoint, best_model_path)
+                print(f"✓ Saved BEST checkpoint (val_weighted_f1 = {current:.4f})")
+            else:
+                no_improve_epochs += 1
+                if no_improve_epochs >= early_stopping_patience:
+                    print(f"Early stopping triggered (no improvement in {early_stopping_patience} epochs)")
+                    break
+    
+    # Load best checkpoint
+    if os.path.exists(best_model_path):
+        checkpoint = torch.load(best_model_path, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        print(f"\n✓ Loaded best checkpoint (val_weighted_f1 = {checkpoint['val_weighted_f1']:.4f})")
+    
+    # Plot training history
+    history_plot_path = os.path.join(reports_dir, f'04-{model_name.lower().replace(" ", "_")}_history.png')
+    plot_training_history(history, history_plot_path)
+    
+    # Return final metrics
+    return {
+        'name': model_name,
+        'train_acc': history['train_acc'][-1],
+        'val_acc': history['val_acc'][-1] if history['val_acc'] else 0.0,
+        'val_macro_f1': history['val_macro_f1'][-1] if history['val_macro_f1'] else 0.0,
+        'val_weighted_f1': best_metric_val,
+        'epochs_trained': len(history['train_acc']),
+        'best_checkpoint': best_model_path
+    }
+
+
 def main():
-    # Set random seed for reproducibility
+    # Set random seed
     seed = int(os.getenv('RANDOM_SEED', '42'))
     set_seed(seed)
-    print(f"Random seed set to {seed} for reproducibility")
+    print(f"Random seed set to {seed}")
     
-    # Configuration from environment variables
+    # Configuration
     base_output = os.getenv('OUTPUT_DIR', '/app/output')
     processed_dir = os.path.join(base_output, 'processed')
     models_dir = os.path.join(base_output, 'models')
@@ -244,6 +624,16 @@ def main():
     num_workers = int(os.getenv('NUM_WORKERS', '2'))
     grad_acc_steps = int(os.getenv('GRAD_ACC_STEPS', '2'))
     
+    print(f"\n{'='*80}")
+    print(f"PROGRESSIVE MODEL EXPANSION TRAINING")
+    print(f"{'='*80}")
+    print(f"Base Model: {model_name}")
+    print(f"Batch Size: {batch_size} | Epochs: {epochs} | LR: {learning_rate}")
+    print(f"Weight Decay: {weight_decay} | Label Smoothing: {label_smoothing}")
+    print(f"Early Stopping Patience: {early_stopping_patience}")
+    print(f"{'='*80}\n")
+    
+    # Load data
     print(f"Loading data from {processed_dir}")
     train_df, val_df, test_df = load_split_csv(processed_dir)
     
@@ -268,47 +658,10 @@ def main():
         total_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
         print(f"GPU: {gpu_name} | Total VRAM: {total_mem:.2f} GB")
     
-    # Load tokenizer and model
-    baseline_dir = os.path.join(models_dir, 'baseline_transformer_model')
-    if os.path.isdir(baseline_dir):
-        print(f"Loading baseline checkpoint from {baseline_dir} for fine-tuning")
-        try:
-            tokenizer = AutoTokenizer.from_pretrained(baseline_dir)
-            model = AutoModelForSequenceClassification.from_pretrained(
-                baseline_dir,
-                num_labels=num_labels,
-                id2label=id2label,
-                label2id=label2id
-            )
-        except Exception as e:
-            print(f"Warning: failed to load baseline model, falling back to {model_name}: {e}")
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
-            model = AutoModelForSequenceClassification.from_pretrained(
-                model_name,
-                num_labels=num_labels,
-                id2label=id2label,
-                label2id=label2id
-            )
-    else:
-        print(f"Loading transformer model: {model_name}")
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSequenceClassification.from_pretrained(
-            model_name,
-            num_labels=num_labels,
-            id2label=id2label,
-            label2id=label2id
-        )
-    model.to(device)
-
-    # Compute class weights for handling class imbalance
-    class_weights_raw = compute_class_weight('balanced', classes=np.unique(y_train), y=np.array(y_train))
-    class_weights = np.sqrt(class_weights_raw)  # sqrt scaling to reduce aggressiveness
-    class_weights_tensor = torch.tensor(class_weights, dtype=torch.float32).to(device)
-    print(f"Class weights (sqrt-scaled): {class_weights}")
-    
-    # Loss function with class weights and label smoothing
-    criterion = nn.CrossEntropyLoss(weight=class_weights_tensor, label_smoothing=label_smoothing)
-    print(f"Using CrossEntropy with class weights (label_smoothing={label_smoothing})")
+    # Load tokenizer and BASE transformer (will be reused for all 4 models)
+    print(f"\nLoading base transformer: {model_name}")
+    from transformers import AutoModel
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     
     # Prepare datasets
     X_train = train_df['text'].astype(str).tolist()
@@ -339,185 +692,108 @@ def main():
             persistent_workers=num_workers > 0
         )
     
-    # Optimizer and scheduler
-    optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    effective_steps_per_epoch = math.ceil(len(train_loader) / max(1, grad_acc_steps))
-    total_steps = effective_steps_per_epoch * epochs
-    warmup_steps = int(0.15 * total_steps)
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=warmup_steps,
-        num_training_steps=total_steps
-    )
-    print('Using linear scheduler with warmup')
+    # Compute class weights
+    class_weights_raw = compute_class_weight('balanced', classes=np.unique(y_train), y=np.array(y_train))
+    class_weights = np.sqrt(class_weights_raw)
+    class_weights_tensor = torch.tensor(class_weights, dtype=torch.float32).to(device)
+    print(f"Class weights (sqrt-scaled): {class_weights}")
     
-    # Log key hyperparameters
-    run_metadata = {
-        'timestamp': datetime.utcnow().isoformat() + 'Z',
-        'model_name': model_name,
-        'device': str(device),
-        'epochs': epochs,
-        'batch_size': batch_size,
-        'grad_acc_steps': grad_acc_steps,
-        'learning_rate': learning_rate,
-        'weight_decay': weight_decay,
-        'max_length': max_length,
-        'label_smoothing': label_smoothing,
-        'early_stopping_patience': early_stopping_patience,
-        'num_workers': num_workers,
-        'seed': seed,
-    }
-    if device.type == 'cuda':
-        run_metadata['gpu_name'] = torch.cuda.get_device_name(0)
-        run_metadata['gpu_total_vram_gb'] = float(torch.cuda.get_device_properties(0).total_memory) / (1024**3)
-    with open(os.path.join(models_dir, 'run_metadata.json'), 'w', encoding='utf-8') as f:
-        json.dump(run_metadata, f, ensure_ascii=False, indent=2)
+    criterion = nn.CrossEntropyLoss(weight=class_weights_tensor, label_smoothing=label_smoothing)
     
-    # Training loop
-    print(f"Starting training for {epochs} epochs...")
-    print(f"Mixed precision: {'ON' if device.type=='cuda' else 'OFF'} | Grad Acc Steps: {grad_acc_steps}")
-    print(f"Weight decay: {weight_decay}")
-    history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': [], 'val_macro_f1': [], 'val_weighted_f1': []}
-
-    # Early stopping & best checkpoint tracking
-    best_metric_val = -float('inf')  # tracking val_weighted_f1 (higher is better)
-    no_improve_epochs = 0
-    best_model_path = os.path.join(models_dir, 'best_transformer_model')
+    # ============================================================================
+    # PROGRESSIVE MODEL CONFIGS
+    # ============================================================================
+    model_configs = [
+        {
+            'name': 'Step1_Baseline',
+            'class': Step1_BaselineModel,
+            'description': 'Minimal baseline: Transformer + single linear classifier'
+        },
+        {
+            'name': 'Step2_Extended',
+            'class': Step2_ExtendedModel,
+            'description': '2-layer adapter + BatchNorm + Dropout(0.3)'
+        },
+        {
+            'name': 'Step3_Advanced',
+            'class': Step3_AdvancedModel,
+            'description': 'Attention pooling + 3-layer adapter + gating mechanism'
+        },
+        {
+            'name': 'Final_Balanced',
+            'class': BalancedFinalModel,
+            'description': 'PRODUCTION RECOMMENDED: Mean pooling + balanced architecture'
+        }
+    ]
     
-    for epoch in range(epochs):
-        print(f"\nEpoch {epoch + 1}/{epochs}")
+    # ============================================================================
+    # TRAIN ALL 4 MODELS AUTOMATICALLY
+    # ============================================================================
+    all_results = {}
+    
+    for config in model_configs:
+        # Load fresh base transformer for each model
+        from transformers import AutoModel
+        base_transformer = AutoModel.from_pretrained(model_name)
         
-        train_loss, train_acc = train_epoch(model, train_loader, optimizer, scheduler, device, criterion, grad_acc_steps)
-        history['train_loss'].append(train_loss)
-        history['train_acc'].append(train_acc)
-        
-        print(f"Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.4f}")
-        
-        if val_loader is not None:
-            val_loss, val_acc, val_preds, val_trues = evaluate(model, val_loader, device, criterion)
-            history['val_loss'].append(val_loss)
-            history['val_acc'].append(val_acc)
-            val_macro_f1 = f1_score(val_trues, val_preds, average='macro') if len(val_trues) > 0 else 0.0
-            val_weighted_f1 = f1_score(val_trues, val_preds, average='weighted') if len(val_trues) > 0 else 0.0
-            history['val_macro_f1'].append(val_macro_f1)
-            history['val_weighted_f1'].append(val_weighted_f1)
-            print(f"Val Loss: {val_loss:.4f}, Val Accuracy: {val_acc:.4f}, Val Macro-F1: {val_macro_f1:.4f}, Val Weighted-F1: {val_weighted_f1:.4f}")
-
-            # Early stopping logic based on val_weighted_f1
-            current = val_weighted_f1
-            improved = current > best_metric_val + 1e-4
-            
-            if improved:
-                best_metric_val = current
-                no_improve_epochs = 0
-                Path(best_model_path).mkdir(parents=True, exist_ok=True)
-                model.save_pretrained(best_model_path)
-                tokenizer.save_pretrained(best_model_path)
-                with open(os.path.join(best_model_path, 'metadata.json'), 'w', encoding='utf-8') as f:
-                    json.dump(run_metadata, f, ensure_ascii=False, indent=2)
-                print(f"Saved BEST model to {best_model_path} (val_weighted_f1 = {current:.4f})")
-            else:
-                no_improve_epochs += 1
-                if no_improve_epochs >= early_stopping_patience:
-                    print(f"Early stopping triggered (no improvement in {early_stopping_patience} epochs)")
-                    break
-    
-    # Load best checkpoint as the final model
-    if os.path.isdir(best_model_path):
-        print(f"\nLoading BEST checkpoint from {best_model_path} as final model...")
-        model = AutoModelForSequenceClassification.from_pretrained(best_model_path)
-        model.to(device)
-        tokenizer = AutoTokenizer.from_pretrained(best_model_path)
-        print(f"Best checkpoint loaded (val_weighted_f1 = {best_metric_val:.4f})")
-    else:
-        print(f"\nWarning: Best checkpoint not found, using current model state")
-    
-    # Plot training history
-    history_plot_path = os.path.join(reports_dir, '04-transformer_training_history.png')
-    plot_training_history(history, history_plot_path)
-    print(f"Training history plot saved to {history_plot_path}")
-    
-    # Evaluate on test set if available
-    if test_df is not None:
-        
-        y_test_str = test_df['label'].astype(str).tolist()
-        y_test_numeric = [normalize_label(label) for label in y_test_str]
-        y_test = [label2id[n] for n in y_test_numeric]
-        X_test = test_df['text'].astype(str).tolist()
-        test_dataset = LegalTextDataset(X_test, y_test, tokenizer, max_length)
-        test_loader = DataLoader(
-            test_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            pin_memory=device.type=='cuda',
-            num_workers=num_workers,
-            persistent_workers=num_workers > 0
-        )
-        test_loss, test_acc, predictions, true_labels = evaluate(model, test_loader, device, criterion)
-        print(f"\nTest Loss: {test_loss:.4f}, Test Accuracy: {test_acc:.4f}")
-        test_macro_f1 = f1_score(true_labels, predictions, average='macro')
-        print(f"Test Macro-F1: {test_macro_f1:.4f}")
-        
-        # Generate classification report
-        pred_labels_str = [id2label[int(pred)] for pred in predictions]
-        true_labels_str = [id2label[int(label)] for label in true_labels]
-        report = classification_report(
-            true_labels_str,
-            pred_labels_str,
-            output_dict=True,
-            zero_division=0
+        result = train_single_model(
+            model_config=config,
+            base_transformer=base_transformer,
+            tokenizer=tokenizer,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            device=device,
+            criterion=criterion,
+            label2id=label2id,
+            id2label=id2label,
+            models_dir=models_dir,
+            reports_dir=reports_dir,
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            epochs=epochs,
+            early_stopping_patience=early_stopping_patience,
+            grad_acc_steps=grad_acc_steps
         )
         
-        # Add ordinal regression metrics (MAE, RMSE)
-        def labels_to_numeric(labels):
-            out = []
-            for l in labels:
-                m = str(l).strip()
-                if m and m[0].isdigit():
-                    out.append(int(m[0]))
-                else:
-                    out.append(0)
-            return np.array(out)
+        all_results[config['name']] = result
         
-        y_true_num = labels_to_numeric(true_labels_str)
-        y_pred_num = labels_to_numeric(pred_labels_str)
-        mae = mean_absolute_error(y_true_num, y_pred_num)
-        rmse = np.sqrt(mean_squared_error(y_true_num, y_pred_num))
-        
-        report['mae'] = float(mae)
-        report['rmse'] = float(rmse)
-        
-        print(f"Test MAE: {mae:.4f}, Test RMSE: {rmse:.4f}")
-        
-        report_path = os.path.join(reports_dir, '04-transformer_test_report.json')
-        with open(report_path, 'w', encoding='utf-8') as f:
-            json.dump(report, f, ensure_ascii=False, indent=2)
-        print(f"Test report saved to {report_path}")
-
-        # Confusion matrix plot
-        cm = confusion_matrix(true_labels_str, pred_labels_str)
-        labels = sorted(set(true_labels_str) | set(pred_labels_str))
-        
-        fig, ax = plt.subplots(figsize=(6, 6))
-        im = ax.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-        ax.figure.colorbar(im, ax=ax)
-        ax.set(xticks=np.arange(len(labels)), yticks=np.arange(len(labels)),
-               xticklabels=labels, yticklabels=labels,
-               ylabel='True', xlabel='Predicted', title='Confusion Matrix (Test)')
-        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-        
-        thresh = cm.max() / 2 if cm.size else 0
-        for i in range(cm.shape[0]):
-            for j in range(cm.shape[1]):
-                ax.text(j, i, format(cm[i, j], 'd'),
-                       ha='center', va='center',
-                       color='white' if cm[i, j] > thresh else 'black')
-        
-        fig.tight_layout()
-        cm_path = os.path.join(reports_dir, '04-transformer_test_confusion_matrix.png')
-        fig.savefig(cm_path, dpi=150, bbox_inches='tight')
-        plt.close(fig)
-        print(f"Confusion matrix saved to {cm_path}")
+        # Clean up GPU memory
+        del base_transformer
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    
+    # ============================================================================
+    # GENERATE COMPARISON REPORT
+    # ============================================================================
+    print(f"\n{'='*80}")
+    print(f"FINAL RESULTS SUMMARY")
+    print(f"{'='*80}\n")
+    
+    for name, result in all_results.items():
+        print(f"{name}:")
+        print(f"  Train Acc: {result['train_acc']:.4f} | Val Acc: {result['val_acc']:.4f}")
+        print(f"  Val Weighted F1: {result['val_weighted_f1']:.4f} | Val Macro F1: {result['val_macro_f1']:.4f}")
+        print(f"  Epochs Trained: {result['epochs_trained']}")
+        print(f"  Gap (Train-Val): {result['train_acc'] - result['val_acc']:.4f}")
+        print()
+    
+    # Save summary JSON
+    summary_path = os.path.join(reports_dir, '04-expansion_summary.json')
+    with open(summary_path, 'w', encoding='utf-8') as f:
+        json.dump(all_results, f, ensure_ascii=False, indent=2)
+    print(f"Summary saved to {summary_path}")
+    
+    # Generate comparison plot
+    comparison_plot_path = os.path.join(reports_dir, '04-model_expansion_comparison.png')
+    plot_model_comparison(all_results, comparison_plot_path)
+    
+    print(f"\n{'='*80}")
+    print(f"✓ PROGRESSIVE MODEL EXPANSION COMPLETE")
+    print(f"{'='*80}")
+    print(f"\nBest model checkpoints:")
+    for name, result in all_results.items():
+        print(f"  - {name}: {result['best_checkpoint']}")
+    print(f"\n✓ PRODUCTION RECOMMENDED: Final_Balanced model")
+    print(f"  Val Weighted F1: {all_results['Final_Balanced']['val_weighted_f1']:.4f}")
 
 
 if __name__ == '__main__':
