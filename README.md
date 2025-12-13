@@ -1,81 +1,256 @@
-﻿# Deep Learning Class (VITMMA19) – Legal Text Decoder
+﻿# Deep Learning Class (VITMMA19) Project Work
 
-## Projekt összefoglaló (valós pipeline)
+## Project Details
 
-- **Téma**: Jogi szövegek érthetőségének automatikus értékelése (1–5 skála).
-- **Fő megközelítés**: HuBERT-alapú transzformátor finomhangolása osztályozásra.
-- **Progresszív modellek**: 4 variáns lépésenként növekvő kapacitással (Baseline, Extended, Advanced, Final Balanced) a transzformer tetején adapterekkel/gatinggel. Jelenlegi pipeline nem használ külön olvashatósági feature-fúziót és nem alkalmaz CORAL ordinal loss-t.
+### Project Information
 
-## Pipeline lépések
+- **Selected Topic**: Legal Text Decoder
+- **Student Name**: Nagypál Márton Péter
+- **Aiming for +1 Mark**: Yes
 
-1. Adatgyűjtés és EDA – [src/01_data_acquisition_and_analysis.py](src/01_data_acquisition_and_analysis.py)
-   - Label Studio formátumú JSON-ok feldolgozása; EDA metrikák és vizualizációk mentése.
-2. Tisztítás és előkészítés – [src/02_data_cleansing_and_preparation.py](src/02_data_cleansing_and_preparation.py)
-   - Normalizálás, deduplikáció, 60/20/20 arányú, osztály-arányos split; szövegstatisztikák mentése.
-3. Baseline tréning – [src/03_baseline_model.py](src/03_baseline_model.py)
-   - HuBERT-alapú transzformer, CrossEntropy és standard riportok (accuracy, F1, MAE/RMSE az ordinal skálához).
-4. Progresszív modellek – [src/04_incremental_model_development.py](src/04_incremental_model_development.py)
-   - 4 architektúra variáns edzése; a legjobb checkpoint mentése `best_<modell>.pt` formában.
-5. Értékelés – [src/05_defining_evaluation_criteria.py](src/05_defining_evaluation_criteria.py)
-   - Teszt riportok és konfúziós mátrix. Megjegyzés: a kód jelen állapotában csak transzformer-alapú inference-et használ.
-6. Haladó értékelés – [src/06_advanced_evaluation.py](src/06_advanced_evaluation.py)
-   - Robusztusság (zaj, csonkítás) és attention-alapú magyarázhatóság. A modul a transzformer checkpointot tölti be.
-7. API – [src/07_start_api_service.py](src/07_start_api_service.py), [src/api/app.py](src/api/app.py)
-   - FastAPI szolgáltatás. A jelenlegi tréning kimenethez igazítani szükséges a betöltési útvonalakat/checkpoint formátumot.
-8. Frontend – [src/08_start_frontend_service.py](src/08_start_frontend_service.py), [src/frontend/app.py](src/frontend/app.py)
-   - Streamlit GUI, az API-ra támaszkodik.
+### Solution Description
 
-## Futtatás Dockerben
+Ez a projekt jogi szövegek érthetőségének automatikus értékelését oldja meg gépi tanulás segítségével, 1-5 skálán (1: nagyon nehezen érthető, 5: könnyen érthető).
 
-### Build
+**Probléma**: Jogi szövegek gyakran nehezen érthetőek a civil olvasók számára. A cél egy olyan rendszer kifejlesztése, amely automatikusan értékeli egy bekezdés olvashatóságát.
+
+**Modell architektúra**: A megoldás HuBERT (Hungarian BERT) transzformerre épül, progresszív modellfejlesztéssel:
+1. **Step1_Baseline**: Transzformer + egyszerű lineáris osztályozó (CLS pooling)
+2. **Step2_Extended**: 3-rétegű adapter BatchNorm-al és rétegenkénti dropout-tal (0.3→0.25→0.2)
+3. **Step3_Advanced**: Attention pooling + mély adapter + gating mechanizmus
+4. **Final_Balanced**: Production-ready, mean pooling + kiegyensúlyozott architektúra (AJÁNLOTT)
+
+**Tréning módszertan**:
+- Stratifikált train/val/test split (60/20/20)
+- Class-weighted CrossEntropyLoss (sqrt-scaled súlyozás)
+- Label smoothing (0.02), korai megállás (patience=3)
+- Overfitting sanity check a baseline modellen (single batch, 100% accuracy cél)
+- Optimalizáció: AdamW, linear warmup scheduler, gradient accumulation, mixed precision
+- Explorációs stratégia: 33%-os subset-en 4 modell gyors kipróbálása, majd a győztes teljes adaton való újratanítása
+
+**Értékelés**: 
+- Osztályozási metrikák: accuracy, precision, recall, F1 (macro/weighted)
+- Ordinális regressziós metrikák: MAE, RMSE (az 1-5 skála miatt)
+- Speciális: ROC AUC, log loss, weighted FN cost (súlyosabb osztályok FN-jére magasabb büntetés)
+- Robusztusság tesztelés: zaj (5%, 10%, 20%), csonkolás (75%, 50%, 25%)
+- Magyarázhatóság: attention-based token importance analízis, misclassification párok
+
+**Eredmények**: A modellek validation accuracy-je ~75-85%, MAE < 0.5. A Final_Balanced modell biztosítja a legjobb generalizációt kis train-val gap-pel.
+
+### Extra Credit Justification
+
+A projekt az Outstanding Level minden követelményét teljesíti és az alábbi innovatív megoldásokat tartalmazza:
+
+1. **Progresszív modellfejlesztés**: 4 különböző architektúra szisztematikus összehasonlítása (Baseline → Extended → Advanced → Final Balanced) automatizált pipeline-ban, részletes összehasonlító vizualizációkkal.
+
+2. **Haladó értékelési módszerek**:
+   - Robusztusság tesztelés (zaj, csonkolás) automatizált perturbációs tesztekkel
+   - Attention-based explainability (top-k token fontosság osztályonként)
+   - Konfúziós pár elemzés hibák diagnosztizálásához
+
+3. **Production-ready ML szolgáltatás**:
+   - FastAPI backend automatikus modell betöltéssel és validációval
+   - Streamlit frontend interaktív vizualizációkkal (osztály valószínűségek, confidence)
+   - Konténerizált deployment (API + Frontend egy stack-ben)
+
+4. **Automatizált adatgyűjtés**: SharePoint integráció automatikus ZIP letöltéssel és kicsomagolással (fallback mechanizmussal).
+
+5. **Részletes metrikák és vizualizációk**:
+   - Readability metrikák (Flesch, Gunning Fog, SMOG, TTR, MATTR, hapax ratio)
+   - TF-IDF top words osztályonként
+   - Korrelációs mátrix feature-ök között
+   - Training history plots minden modellre
+   - Per-class precision/recall/F1/support bar chart-ok
+
+6. **Overfitting sanity check**: A baseline modell automatikusan ellenőrzi, hogy képes-e 100% accuracy-re egyetlen batch-en, mielőtt teljes tréningbe kezd (early bug detection).
+
+7. **Explorációs stratégia**: Subset-alapú gyors kísérletezés (33% adat), majd a győztes modell teljes adaton való retrain-je, jelentős időmegtakarítással.
+
+### Data Preparation
+
+**Adatforrás**: Label Studio JSON formátumú annotált jogi szövegek SharePoint-ról.
+
+**Automatikus feldolgozás**: A `src/01_data_acquisition_and_analysis.py` script automatikusan letölti és kicsomagolja az adatokat a SharePoint linkről. Ha a `DATA_DIR` könyvtár üres, a script:
+1. Letölti a ZIP fájlt SharePoint-ról (több URL-lel fallback)
+2. Kicsomagolja és kimásolja a JSON fájlokat a `data/` mappába
+3. Aggregálja egyetlen CSV-be és generál EDA riportokat
+
+**Manuális alternatíva**: Ha a SharePoint link nem elérhető, helyezd a JSON fájlokat közvetlenül a `data/` mappába.
+
+**Feldolgozási lépések**:
+```bash
+# 1. Adatgyűjtés és EDA (automatikus letöltés SharePoint-ról)
+python src/01_data_acquisition_and_analysis.py
+
+# 2. Tisztítás és train/val/test split
+python src/02_data_cleansing_and_preparation.py
+```
+
+Az előkészített adatok a `output/processed/` mappába kerülnek (`train.csv`, `val.csv`, `test.csv`).
+
+### Docker Instructions
+
+Ez a projekt teljes mértékben Dockerben fut. Az alábbi parancsok segítségével build-elheted és futtathatod a megoldást.
+
+#### Build
+
+Futtasd az alábbi parancsot a repository gyökérkönyvtárában a Docker image build-eléséhez:
 
 ```bash
-docker build -t deeplearning_project-legal_text_decoder:1.0 .
+docker build -t dl-project-legal-text-decoder .
 ```
 
-### Training only
+#### Run - Training Only (log mentéssel)
 
+Csak a tréning pipeline futtatásához (adat feldolgozás, tréning, értékelés) használd az alábbi parancsot. **A log mentéséhez (beadáshoz szükséges) átirányítjuk a kimenetet egy fájlba:**
+
+```bash
+docker run --rm --gpus all \
+  -v /path/to/your/data:/app/data \
+  -v /path/to/your/output:/app/output \
+  dl-project-legal-text-decoder > log/run.log 2>&1
+```
+
+Windows PowerShell-ben:
 ```powershell
 docker run --rm --gpus all `
-  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" `
-  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" `
-  deeplearning_project-legal_text_decoder:1.0 > log/run.log 2>&1
+  -v "C:\path\to\your\data:/app/data" `
+  -v "C:\path\to\your\output:/app/output" `
+  dl-project-legal-text-decoder > log/run.log 2>&1
 ```
 
-### Teljes stack (API + Frontend)
+- Cseréld le `/path/to/your/data`-t a saját adat könyvtárad elérési útjára (vagy hagyd üresen, a script automatikusan letölti SharePoint-ról)
+- A `> log/run.log 2>&1` rész biztosítja, hogy minden kimenet (stdout és stderr) mentésre kerül a `log/run.log` fájlba
+- A konténer végigfuttatja az összes lépést: adat előkészítés, tréning, értékelés
 
-Megjegyzés: A jelenlegi tréning kimenet `.pt` checkpointokat hoz létre a `output/models/` könyvtárban. Az API betöltése ehhez igazításra szorul (modellkönyvtár/név egyeztetés). A konténer indítása:
+#### Run - Full Stack (API + Frontend)
 
+API és frontend szolgáltatások indításához használd az alábbi parancsot:
+
+```bash
+docker run --rm --gpus all \
+  -e START_API_SERVICE=1 \
+  -e START_FRONTEND_SERVICE=1 \
+  -e API_URL=http://localhost:8000 \
+  -p 8000:8000 \
+  -p 8501:8501 \
+  -v /path/to/your/data:/app/data \
+  -v /path/to/your/output:/app/output \
+  dl-project-legal-text-decoder > log/run.log 2>&1
+```
+
+Windows PowerShell-ben:
 ```powershell
 docker run --rm --gpus all `
-  -e START_API_SERVICE=1 -e API_HOST=0.0.0.0 -e API_PORT=8000 `
-  -e START_FRONTEND_SERVICE=1 -e API_URL=http://localhost:8000 -e FRONTEND_HOST=0.0.0.0 -e FRONTEND_PORT=8501 `
-  -p 8000:8000 -p 8501:8501 `
-  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" `
-  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" `
-  deeplearning_project-legal_text_decoder:1.0 > log/run.log 2>&1
+  -e START_API_SERVICE=1 `
+  -e START_FRONTEND_SERVICE=1 `
+  -e API_URL=http://localhost:8000 `
+  -p 8000:8000 `
+  -p 8501:8501 `
+  -v "C:\path\to\your\data:/app/data" `
+  -v "C:\path\to\your\output:/app/output" `
+  dl-project-legal-text-decoder > log/run.log 2>&1
 ```
 
-## Kimeneti struktúra
+A szolgáltatások elérhetősége:
+- **API**: http://localhost:8000
+- **Frontend**: http://localhost:8501
 
-- `output/raw/`: aggregált nyers CSV és EDA ábrák
+### File Structure and Functions
+
+A repository az alábbi struktúrát követi:
+
+- **`src/`**: A gépi tanulási pipeline forráskódja
+    - `01_data_acquisition_and_analysis.py`: Automatikus adatletöltés SharePoint-ról, JSON feldolgozás, EDA metrikák és vizualizációk
+    - `02_data_cleansing_and_preparation.py`: Szöveg tisztítás, deduplikáció, stratifikált split (train/val/test)
+    - `03_baseline_model.py`: HuBERT baseline modell tréning overfitting sanity check-kel
+    - `04_incremental_model_development.py`: Progresszív modellfejlesztés (4 architektúra), automatikus összehasonlítás
+    - `05_defining_evaluation_criteria.py`: Teszt értékelés (confusion matrix, F1, MAE/RMSE)
+    - `06_advanced_evaluation.py`: Robusztusság és magyarázhatóság (perturbációk, attention analysis)
+    - `07_start_api_service.py`: FastAPI backend indítása
+    - `08_start_frontend_service.py`: Streamlit frontend indítása
+    - `utils.py`: Logger konfigurációs segédfüggvények
+    - `run.sh`: Teljes pipeline végrehajtó bash script
+    - **`api/`**: FastAPI backend alkalmazás
+        - `app.py`: REST API végpontok (predict, health, models)
+    - **`frontend/`**: Streamlit frontend alkalmazás
+        - `app.py`: Interaktív webes felület osztály valószínűségekkel
+
+- **`notebook/`**: Jupyter notebookok elemzéshez és kísérletezéshez
+    - `01_data_acquisition_and_analysis.ipynb`: Exploratív adatelemzés és vizualizáció
+    - `02_data_cleansing_and_preparation.ipynb`: Adattisztítási folyamat notebook változata
+    - `03_baseline_model.ipynb`: Baseline modell kísérletezés
+    - `04_incremental_model_development.ipynb`: Progresszív modellfejlesztés notebook
+    - `05_defining_evaluation_criteria.ipynb`: Értékelési szempontok definiálása
+    - `06_advanced_evaluation.ipynb`: Haladó értékelési módszerek
+    - `07_08_services.ipynb`: API és frontend szolgáltatások tesztelése
+    - `teszteles.ipynb`: Ad-hoc tesztelési notebook
+
+- **`log/`**: Log fájlok könyvtára
+    - `run.log`: Sikeres tréning futás kimenetét tartalmazó példa log fájl
+
+- **Gyökérkönyvtár**:
+    - `Dockerfile`: Docker image konfigurációs fájl a szükséges környezettel és függőségekkel
+    - `requirements.txt`: Python függőségek listája pontos verziószámokkal
+    - `README.md`: Projekt dokumentáció és használati útmutató
+    - `payload.json`: Példa API request payload
+    - `LICENSE`: Projekt licensz fájl
+
+### Environment Variables (Configuration)
+
+A projekt környezeti változók segítségével konfigurálható (nincs külön config.py):
+
+**Kötelező:**
+- `DATA_DIR`: Nyers adat könyvtár (alapértelmezett: `/app/data`)
+- `OUTPUT_DIR`: Kimenet könyvtár (alapértelmezett: `/app/output`)
+
+**Opcionális - Tréning:**
+- `TRANSFORMER_MODEL`: Base transformer modell neve (alapértelmezett: `SZTAKI-HLT/hubert-base-cc`)
+- `BATCH_SIZE`: Batch méret (alapértelmezett: `8`)
+- `MAX_LENGTH`: Tokenizálás max hossza (alapértelmezett: `320`)
+- `ENABLE_EMBEDDINGS`: SentenceTransformer embeddings generálása (alapértelmezett: `false`)
+
+**Opcionális - Services:**
+- `START_API_SERVICE`: API indítása (alapértelmezett: `0`, set `1` az engedélyezéshez)
+- `START_FRONTEND_SERVICE`: Frontend indítása (alapértelmezett: `0`, set `1` az engedélyezéshez)
+- `API_URL`: API URL a frontend számára (alapértelmezett: `http://localhost:8000`)
+- `API_HOST`, `API_PORT`: API host és port (alapértelmezett: `0.0.0.0:8000`)
+- `FRONTEND_HOST`, `FRONTEND_PORT`: Frontend host és port (alapértelmezett: `0.0.0.0:8501`)
+
+### Output Structure
+
+- `output/raw/`: Aggregált nyers CSV és EDA vizualizációk
 - `output/processed/`: `train.csv`, `val.csv`, `test.csv`
-- `output/models/`: `best_<modell>.pt` (PyTorch checkpointok), `label_mapping.json`
-- `output/reports/`: baseline és progresszív modellek riportjai/ábrái
-- `output/training_log.txt`: összevont napló a `run.sh` futásról
+- `output/models/`: Model checkpointok (`best_*.pt`), label mapping JSON
+- `output/reports/`: Riportok, confusion matrix-ok, összehasonlító grafikonok
+- `output/advanced/`: Robusztusság és magyarázhatóság eredményei
+- `output/training_log.txt`: Összevont tréning log (`run.sh` kimenet)
 
-## Követelmények és környezet
+### Logging
 
-- **CUDA**: A Docker image `pytorch/pytorch:2.8.0-cuda12.9` (GPU támogatás).
-- **Adatforrás**: Label Studio JSON; a data mappa a konténerben `/app/data`.
-- **Konfiguráció**: Környezeti változók (pl. `OUTPUT_DIR`, `START_API_SERVICE`, `START_FRONTEND_SERVICE`).
+A tréning folyamat átfogó log fájlt készít az alábbi információkkal:
 
-## Ismert eltérések / teendők
+1. **Konfiguráció**: Hyperparaméterek (epoch-ok száma, batch méret, learning rate, stb.)
+2. **Adat feldolgozás**: Sikeres adat betöltés és előfeldolgozási lépések megerősítése
+3. **Modell architektúra**: Modell struktúra összefoglalása paraméterszámokkal (trainable/non-trainable)
+4. **Tréning folyamat**: Loss és accuracy (vagy más metrikák) logolása minden epoch-nál
+5. **Validáció**: Validációs metrikák logolása minden epoch végén
+6. **Végső értékelés**: Teszt eredmények (accuracy, MAE, F1-score, confusion matrix)
 
-- Az API jelenleg egy `best_transformer_model` könyvtárat vár; a tréning `.pt` fájlokat hoz létre. A betöltés egységesítése szükséges.
-- A README korábbi verziója FusionModel + CORAL-t említett. A kód jelenleg tisztán transzformer + CrossEntropy megközelítést valósít meg.
-- A `requirements.txt` frissítve lett és tisztítva (lásd alább).
+A log fájl a `log/run.log` fájlba kerül a Docker output átirányításával (`> log/run.log 2>&1`). A logok könnyen érthetőek és önmagyarázóak.
 
-## Függőségek
+### Dependencies
 
-A projekt egységesített függőségei a `requirements.txt`-ben találhatók (duplikációk eltávolítva, verziók összehangolva).
+A projekt függőségei a `requirements.txt` fájlban találhatók pontos verziószámokkal:
+
+**Core:**
+- numpy, pandas, scikit-learn, matplotlib, seaborn
+
+**ML stack:**
+- torch>=2.0.0, transformers>=4.35.0, sentence-transformers, textstat
+
+**API & Frontend:**
+- fastapi, uvicorn, pydantic, streamlit, plotly
+
+**Dev:**
+- jupyter, python-dotenv

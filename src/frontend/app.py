@@ -29,7 +29,8 @@ st.markdown("""
     .prediction-box {
         padding: 2rem;
         border-radius: 10px;
-        background-color: #f0f2f6;
+        background-color: #1e1e1e;
+        color: #f5f5f5;
         margin: 1rem 0;
     }
     .metric-card {
@@ -138,11 +139,11 @@ def main():
         st.markdown("---")
         st.markdown("**Érthetőségi skála:**")
         st.markdown("""
-        - **1**: Nagyon nehezen érthető
+        - **1**: Nagyon nehezen vagy nem értelmezhető
         - **2**: Nehezen érthető
-        - **3**: Közepesen érthető
-        - **4**: Könnyen érthető
-        - **5**: Nagyon könnyen érthető
+        - **3**: Valamennyire érthető, de erősen kell koncentrálni
+        - **4**: Végigolvasva megértem
+        - **5**: Könnyen, egyből érthető
         """)
     
     # Check if we should stop early
@@ -157,7 +158,7 @@ def main():
     # Main content
     st.subheader("📝 Jogi szöveg bekezdés")
     text_input = st.text_area(
-        "Írd be vagy illeszd be a jogi szöveg egy bekezdését:",
+        "Írja be vagy illessze be a jogi szöveg egy bekezdését:",
         height=200,
         placeholder="Például: A jelen Általános Szerződési Feltételek (továbbiakban: ÁSZF) tartalmazzák...",
         value=st.session_state.get('example_text', '')
@@ -186,41 +187,42 @@ def main():
         
         # Display results
         data = result['data']
-        
-        st.markdown('<div class="prediction-box">', unsafe_allow_html=True)
-        
-        # Main prediction
-        st.markdown("## 📊 Eredmény")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.metric(
-                label="Érthetőségi kategória",
-                value=data['prediction']
-            )
-        
-        with col2:
-            st.metric(
-                label="Bizalmi szint",
-                value=f"{data['confidence']:.1%}"
-            )       
-        st.markdown("---")
-        
-        # Probability chart
-        st.markdown("### 📈 Valószínűség eloszlás")
-        fig = create_probability_chart(data['probabilities'])
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Probability table
-        st.markdown("### 📋 Részletes eredmények")
-        prob_df = pd.DataFrame([
-            {"Kategória": k, "Valószínűség": f"{v:.2%}"}
-            for k, v in sorted(data['probabilities'].items(), key=lambda x: x[1], reverse=True)
-        ])
-        st.dataframe(prob_df, use_container_width=True, hide_index=True)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Wrap everything in the prediction box so the title + metrics stay together
+        with st.container():
+            st.markdown('<div class="prediction-box">', unsafe_allow_html=True)
+
+            # Main prediction
+            st.markdown("## 📊 Eredmény")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric(
+                    label="Érthetőségi kategória",
+                    value=data['prediction']
+                )
+            with col2:
+                st.metric(
+                    label="Bizalmi szint",
+                    value=f"{data['confidence']:.1%}"
+                )
+
+            st.markdown("---")
+
+            # Probability chart
+            st.markdown("### 📈 Valószínűség eloszlás")
+            fig = create_probability_chart(data['probabilities'])
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Probability table
+            st.markdown("### 📋 Részletes eredmények")
+            prob_df = pd.DataFrame([
+                {"Kategória": k, "Valószínűség": f"{v:.2%}"}
+                for k, v in sorted(data['probabilities'].items(), key=lambda x: x[1], reverse=True)
+            ])
+            st.dataframe(prob_df, use_container_width=True, hide_index=True)
+
+            st.markdown('</div>', unsafe_allow_html=True)
         
         # Interpretation
         confidence = data['confidence']
