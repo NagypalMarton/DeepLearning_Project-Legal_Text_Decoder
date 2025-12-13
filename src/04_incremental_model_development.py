@@ -675,16 +675,37 @@ def main():
         def _stratified_sample(df, label_col, frac, seed, balanced=False):
             if df is None or len(df) == 0:
                 return df
-            g = df.groupby(label_col, group_keys=False)
+            
+            # Manually sample each group to avoid groupby().apply() column issues
+            unique_labels = df[label_col].unique()
+            samples = []
+            
             if not balanced:
                 # Standard stratified sampling by fraction
-                return g.apply(lambda grp: grp.sample(frac=frac, random_state=seed), include_groups=False)
-            # Balanced sampling: equal count per class based on the smallest class size
-            class_counts = g.size()
-            min_count = int(class_counts.min())
-            target_per_class = max(1, int(min_count * frac))
-            # Sample exactly target_per_class per class (or all rows if class too small)
-            return g.apply(lambda grp: grp.sample(n=min(target_per_class, len(grp)), random_state=seed), include_groups=False)
+                for label_val in unique_labels:
+                    group = df[df[label_col] == label_val]
+                    if len(group) > 0:
+                        sample = group.sample(frac=frac, random_state=seed)
+                        samples.append(sample)
+            else:
+                # Balanced sampling: equal count per class based on the smallest class size
+                class_counts = df[label_col].value_counts()
+                min_count = int(class_counts.min())
+                target_per_class = max(1, int(min_count * frac))
+                
+                for label_val in unique_labels:
+                    group = df[df[label_col] == label_val]
+                    if len(group) > 0:
+                        sample_size = min(target_per_class, len(group))
+                        sample = group.sample(n=sample_size, random_state=seed)
+                        samples.append(sample)
+            
+            # Concatenate all samples and reset index
+            if samples:
+                result = pd.concat(samples, ignore_index=True)
+                return result
+            else:
+                return df.iloc[:0]  # Return empty dataframe with same structure
 
         train_df = _stratified_sample(train_df, 'label', subset_fraction, 42, balanced_subset)
         if val_df is not None and len(val_df) > 0:
