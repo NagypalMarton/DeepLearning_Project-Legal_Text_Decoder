@@ -113,10 +113,11 @@ class Step1_BaselineModel(nn.Module):
     
     Purpose: Validate basic capacity without overfitting.
     """
-    def __init__(self, transformer_model, num_classes=5):
+    def __init__(self, transformer_model, num_classes=5, label_smoothing=0.0):
         super().__init__()
         self.transformer = transformer_model
         self.num_classes = num_classes
+        self.label_smoothing = label_smoothing
         hidden_size = transformer_model.config.hidden_size
         self.classifier = nn.Linear(hidden_size, num_classes)
     
@@ -133,40 +134,46 @@ class Step1_BaselineModel(nn.Module):
         
         output = type('Output', (), {'logits': logits})()
         if labels is not None:
-            output.loss = nn.CrossEntropyLoss()(logits, labels)
+            output.loss = nn.CrossEntropyLoss(label_smoothing=self.label_smoothing)(logits, labels)
         return output
 
 
 class Step2_ExtendedModel(nn.Module):
-    """Step 2: Extended - 2-layer adapter + BatchNorm + Dropout.
+    """Step 2: Extended - 3-layer adapter + BatchNorm + Layerwise Dropout.
     
     Architecture:
     - Pretrained transformer
     - CLS pooling
-    - 2-layer adapter network (hidden_dim=256)
+    - 3-layer adapter network (768 → 384 → 192 → 96)
     - BatchNorm for stabilization
-    - Dropout(0.3) for regularization
+    - Layerwise Dropout (0.3 → 0.25 → 0.2) - stronger regularization in early layers
     - GELU activation
     
-    Purpose: Add moderate capacity with basic regularization.
+    Purpose: Add moderate capacity with progressive regularization.
     """
-    def __init__(self, transformer_model, num_classes=5, hidden_dim=256, dropout=0.3):
+    def __init__(self, transformer_model, num_classes=5, hidden_dim=384, dropout=0.3, label_smoothing=0.0):
         super().__init__()
         self.transformer = transformer_model
         self.num_classes = num_classes
+        self.label_smoothing = label_smoothing
         trans_hidden = transformer_model.config.hidden_size
         
+        # 3-layer adapter with layerwise dropout (0.3 -> 0.25 -> 0.2)
         self.adapter = nn.Sequential(
             nn.Linear(trans_hidden, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.GELU(),
-            nn.Dropout(dropout),
+            nn.Dropout(dropout),  # 0.3
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.BatchNorm1d(hidden_dim // 2),
             nn.GELU(),
-            nn.Dropout(dropout)
+            nn.Dropout(dropout * 0.83),  # ~0.25
+            nn.Linear(hidden_dim // 2, hidden_dim // 4),
+            nn.BatchNorm1d(hidden_dim // 4),
+            nn.GELU(),
+            nn.Dropout(dropout * 0.67)  # ~0.2
         )
-        self.classifier = nn.Linear(hidden_dim // 2, num_classes)
+        self.classifier = nn.Linear(hidden_dim // 4, num_classes)
     
     def forward(self, input_ids, attention_mask, labels=None):
         outputs = self.transformer(
@@ -181,7 +188,7 @@ class Step2_ExtendedModel(nn.Module):
         
         output = type('Output', (), {'logits': logits})()
         if labels is not None:
-            output.loss = nn.CrossEntropyLoss()(logits, labels)
+            output.loss = nn.CrossEntropyLoss(label_smoothing=self.label_smoothing)(logits, labels)
         return output
 
 
@@ -198,10 +205,11 @@ class Step3_AdvancedModel(nn.Module):
     
     Purpose: Maximum capacity with advanced regularization.
     """
-    def __init__(self, transformer_model, num_classes=5, hidden_dim=256, dropout=0.4, num_heads=4):
+    def __init__(self, transformer_model, num_classes=5, hidden_dim=256, dropout=0.4, num_heads=4, label_smoothing=0.0):
         super().__init__()
         self.transformer = transformer_model
         self.num_classes = num_classes
+        self.label_smoothing = label_smoothing
         trans_hidden = transformer_model.config.hidden_size
         
         # Attention pooling
@@ -265,7 +273,7 @@ class Step3_AdvancedModel(nn.Module):
         
         output = type('Output', (), {'logits': logits})()
         if labels is not None:
-            output.loss = nn.CrossEntropyLoss()(logits, labels)
+            output.loss = nn.CrossEntropyLoss(label_smoothing=self.label_smoothing)(logits, labels)
         return output
 
 
@@ -283,10 +291,11 @@ class BalancedFinalModel(nn.Module):
     
     Purpose: PRODUCTION RECOMMENDED - Best balance of performance and robustness.
     """
-    def __init__(self, transformer_model, num_classes=5, hidden_dim=256, dropout=0.3):
+    def __init__(self, transformer_model, num_classes=5, hidden_dim=256, dropout=0.3, label_smoothing=0.0):
         super().__init__()
         self.transformer = transformer_model
         self.num_classes = num_classes
+        self.label_smoothing = label_smoothing
         trans_hidden = transformer_model.config.hidden_size
         
         self.adapter = nn.Sequential(
@@ -321,7 +330,7 @@ class BalancedFinalModel(nn.Module):
         
         output = type('Output', (), {'logits': logits})()
         if labels is not None:
-            output.loss = nn.CrossEntropyLoss()(logits, labels)
+            output.loss = nn.CrossEntropyLoss(label_smoothing=self.label_smoothing)(logits, labels)
         return output
 
 
@@ -789,7 +798,7 @@ def main():
         {
             'name': 'Step2_Extended',
             'class': Step2_ExtendedModel,
-            'description': '2-layer adapter + BatchNorm + Dropout(0.3)'
+            'description': '3-layer adapter + BatchNorm + Layerwise Dropout (0.3→0.25→0.2)'
         },
         {
             'name': 'Step3_Advanced',
