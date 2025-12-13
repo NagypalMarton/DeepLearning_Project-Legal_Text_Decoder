@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
-from sklearn.metrics import classification_report, confusion_matrix, mean_absolute_error, mean_squared_error
+from sklearn.metrics import classification_report, confusion_matrix, mean_absolute_error, mean_squared_error, roc_auc_score, log_loss
 import matplotlib
 matplotlib.use("Agg")  # headless environments (Docker)
 import matplotlib.pyplot as plt
@@ -250,6 +250,7 @@ def evaluate(model, dataloader, device, criterion, id2label):
 	total = 0
 	all_preds = []
 	all_trues = []
+	all_probs = []  # Store probabilities for ROC AUC and log loss
 	disable_tqdm = not sys.stdout.isatty()
 	for batch in tqdm(dataloader, desc="Eval", disable=disable_tqdm):
 		input_ids = batch['input_ids'].to(device)
@@ -260,13 +261,15 @@ def evaluate(model, dataloader, device, criterion, id2label):
 		loss = criterion(logits, labels)
 		running_loss += loss.item() * input_ids.size(0)
 		preds = torch.argmax(logits, dim=1)
+		probs = torch.softmax(logits, dim=1)
 		correct += (preds == labels).sum().item()
 		total += labels.size(0)
 		all_preds.extend([id2label[int(p)] for p in preds.cpu().numpy()])
 		all_trues.extend([id2label[int(t)] for t in labels.cpu().numpy()])
+		all_probs.extend(probs.cpu().numpy())
 	avg_loss = running_loss / max(1, total)
 	acc = correct / max(1, total)
-	return avg_loss, acc, all_preds, all_trues
+	return avg_loss, acc, all_preds, all_trues, all_probs
 
 def _plot_overfitting_convergence(losses, accuracies, final_iteration):
 	"""Plot Loss and Accuracy curves for overfitting test convergence."""
@@ -516,7 +519,7 @@ def main():
 		if loader is None or original_labels is None:
 			logger.warning(f"No {split_name} split; skipping")
 			return
-		loss, acc, preds, trues = evaluate(model, loader, device, criterion, id2label)
+		loss, acc, preds, trues, probs = evaluate(model, loader, device, criterion, id2label)
 		all_labels = sorted(list(set(trues) | set(preds)))
 		report = classification_report(trues, preds, labels=all_labels, output_dict=True, zero_division=0)
 		# Regression metrics
@@ -526,11 +529,55 @@ def main():
 		rmse = np.sqrt(mean_squared_error(y_true_num, y_pred_num))
 		report['mae'] = float(mae)
 		report['rmse'] = float(rmse)
+		
+		# Additional metrics: ROC AUC, Log Loss, Weighted Cost of Critical FN
+		probs_array = np.array(probs)
+		
+		# Convert string labels to numeric for metric calculation
+		label_list = sorted(label2id.keys(), key=lambda x: label2id[x])
+		y_true_indices = [label2id[str(t)] for t in trues]
+		y_pred_indices = [label2id[str(p)] for p in preds]
+		
+		# ROC AUC (multiclass - ovr: one-vs-rest)
+		try:
+			roc_auc = roc_auc_score(y_true_indices, probs_array, multi_class='ovr', average='weighted')
+			report['roc_auc_weighted'] = float(roc_auc)
+		except Exception as e:
+			logger.warning(f"Could not compute ROC AUC: {e}")
+			report['roc_auc_weighted'] = None
+		
+		# Log Loss (Cross-Entropy)
+		try:
+			log_loss_value = log_loss(y_true_indices, probs_array, labels=list(range(len(label2id))))
+			report['log_loss'] = float(log_loss_value)
+		except Exception as e:
+			logger.warning(f"Could not compute log loss: {e}")
+			report['log_loss'] = None
+		
+		# Weighted Cost of Critical False Negatives
+		# Higher severity classes get higher FN penalty (e.g., missing a severity 5 is worse than missing a severity 1)
+		cm = confusion_matrix(y_true_indices, y_pred_indices, labels=list(range(len(label2id))))
+		fn_costs = []
+		for i, label in enumerate(label_list):
+			# Extract severity level (assume labels like '1', '2', '3', '4', '5')
+			try:
+				severity = int(str(label)[0]) if str(label)[0].isdigit() else 1
+			except:
+				severity = 1
+			# FN for this class: sum of column i minus diagonal
+			fn_count = cm[:, i].sum() - cm[i, i]
+			# Weight by severity: higher severity = higher cost
+			fn_costs.append(fn_count * severity)
+		
+		weighted_fn_cost = sum(fn_costs)
+		report['weighted_fn_cost'] = float(weighted_fn_cost)
 		report_path = os.path.join(reports_dir, f'03-baseline_{split_name}_report.json')
 		with open(report_path, 'w', encoding='utf-8') as f:
 			json.dump(report, f, ensure_ascii=False, indent=2)
 		logger.info(f"Saved {split_name} report to {report_path}")
 		logger.info(f"  Accuracy: {report['accuracy']:.4f}, Weighted F1: {report.get('weighted avg', {}).get('f1-score', 0):.4f}, MAE: {mae:.4f}, RMSE: {rmse:.4f}")
+		if report.get('roc_auc_weighted') is not None:
+			logger.info(f"  ROC AUC: {report['roc_auc_weighted']:.4f}, Log Loss: {report.get('log_loss', 0):.4f}, Weighted FN Cost: {report.get('weighted_fn_cost', 0):.1f}")
 		cm_path = os.path.join(reports_dir, f'03-baseline_{split_name}_confusion_matrix.png')
 		plot_confusion_matrix(trues, preds, all_labels, cm_path, split_name=split_name.capitalize())
 		logger.info(f"Saved {split_name} confusion matrix to {cm_path}")

@@ -441,7 +441,7 @@ async def predict(request: PredictionRequest):
 
 
 def predict_transformer(text: str) -> PredictionResponse:
-    """Predict using FusionModel transformer"""
+    """Predict using trained transformer checkpoint"""
     model_data = models['transformer']
     model = model_data['model']
     tokenizer = model_data['tokenizer']
@@ -479,14 +479,14 @@ def predict_transformer(text: str) -> PredictionResponse:
         probabilities = torch.softmax(logits, dim=1)[0]
         predicted_class = torch.argmax(probabilities).item()
     
-    # Build probability dict
-    prob_dict = {
-        id2label[str(i)]: float(probabilities[i].cpu().numpy())
-        for i in range(len(probabilities))
-    }
+    # Build probability dict (handle int vs str keys)
+    prob_dict = {}
+    for i in range(len(probabilities)):
+        key = id2label.get(i) or id2label.get(str(i)) or str(i)
+        prob_dict[key] = float(probabilities[i].cpu().numpy())
     
     # Get prediction and confidence
-    prediction = id2label[str(predicted_class)]
+    prediction = id2label.get(predicted_class) or id2label.get(str(predicted_class)) or str(predicted_class)
     confidence = float(probabilities[predicted_class].cpu().numpy())
     
     return PredictionResponse(

@@ -63,9 +63,18 @@ def predict_text(text: str, model_type: str) -> Dict:
         )
         
         if response.status_code == 200:
-            return {"success": True, "data": response.json()}
+            try:
+                return {"success": True, "data": response.json()}
+            except Exception:
+                return {"success": False, "error": f"Invalid JSON response: {response.text[:200]}"}
         else:
-            return {"success": False, "error": response.json().get("detail", "Unknown error")}
+            # Robust error extraction: try JSON, else use raw text
+            err_detail = None
+            try:
+                err_detail = response.json().get("detail")
+            except Exception:
+                err_detail = None
+            return {"success": False, "error": err_detail or response.text or f"HTTP {response.status_code}"}
     
     except Exception as e:
         return {"success": False, "error": str(e)}

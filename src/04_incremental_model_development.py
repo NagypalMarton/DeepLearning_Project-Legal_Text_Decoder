@@ -614,7 +614,7 @@ def parse_args():
     parser.add_argument("--num_workers", type=int, default=2)
     parser.add_argument("--grad_acc_steps", type=int, default=2)
     parser.add_argument("--output_dir", default="/app/output", help="Base output directory")
-    parser.add_argument("--subset_fraction", type=float, default=0.2, help="Fraction of train/val used for exploration")
+    parser.add_argument("--subset_fraction", type=float, default=0.33, help="Fraction of train/val used for exploration")
     parser.add_argument("--final_train_winner_only", action="store_true", default=True, help="Retrain only winner on full data (default True)")
     parser.add_argument("--balanced_subset", action="store_true", default=True, help="Use equal per-class sampling for subset (default True)")
     parser.add_argument("--random_seed", type=int, default=42)
