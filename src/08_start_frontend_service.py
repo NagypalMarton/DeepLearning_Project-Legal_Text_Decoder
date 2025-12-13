@@ -5,12 +5,35 @@ import logging
 import time
 from pathlib import Path
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+
+def get_logger(name: str, filename: str):
+    """Logger that writes to stdout and to OUTPUT_DIR/<filename>."""
+    logger = logging.getLogger(name)
+    if logger.handlers:
+        return logger
+
+    logger.setLevel(logging.INFO)
+    fmt = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+    stream = logging.StreamHandler(sys.stdout)
+    stream.setFormatter(fmt)
+    logger.addHandler(stream)
+
+    try:
+        output_dir = Path(os.getenv('OUTPUT_DIR', '/app/output'))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(output_dir / filename)
+        file_handler.setFormatter(fmt)
+        logger.addHandler(file_handler)
+    except Exception:
+        # If file handler fails, keep stdout logging so we don't lose logs
+        pass
+
+    logger.propagate = False
+    return logger
+
+
+logger = get_logger(__name__, 'frontend.log')
 
 
 def check_api_available():
