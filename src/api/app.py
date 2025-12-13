@@ -94,6 +94,166 @@ class HealthResponse(BaseModel):
     models_loaded: List[str]
 
 
+# ---------------------------------------------------------------------------
+# Model architectures (mirrored from training script)
+# ---------------------------------------------------------------------------
+
+class Step1_BaselineModel(nn.Module):
+    """Transformer + single linear classifier (CLS pooling)."""
+    def __init__(self, transformer_model, num_classes=5):
+        super().__init__()
+        self.transformer = transformer_model
+        hidden_size = transformer_model.config.hidden_size
+        self.classifier = nn.Linear(hidden_size, num_classes)
+
+    def forward(self, input_ids, attention_mask, labels=None):
+        outputs = self.transformer(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=False,
+            return_dict=True
+        )
+        pooled = outputs.last_hidden_state[:, 0, :]
+        logits = self.classifier(pooled)
+        out = type('Output', (), {'logits': logits})()
+        if labels is not None:
+            out.loss = nn.CrossEntropyLoss()(logits, labels)
+        return out
+
+
+class Step2_ExtendedModel(nn.Module):
+    """Transformer + 2-layer adapter with BatchNorm + Dropout."""
+    def __init__(self, transformer_model, num_classes=5, hidden_dim=256, dropout=0.3):
+        super().__init__()
+        self.transformer = transformer_model
+        trans_hidden = transformer_model.config.hidden_size
+        self.adapter = nn.Sequential(
+            nn.Linear(trans_hidden, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.BatchNorm1d(hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(dropout)
+        )
+        self.classifier = nn.Linear(hidden_dim // 2, num_classes)
+
+    def forward(self, input_ids, attention_mask, labels=None):
+        outputs = self.transformer(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=False,
+            return_dict=True
+        )
+        pooled = outputs.last_hidden_state[:, 0, :]
+        adapted = self.adapter(pooled)
+        logits = self.classifier(adapted)
+        out = type('Output', (), {'logits': logits})()
+        if labels is not None:
+            out.loss = nn.CrossEntropyLoss()(logits, labels)
+        return out
+
+
+class Step3_AdvancedModel(nn.Module):
+    """Transformer + attention pooling + deep adapter + gating."""
+    def __init__(self, transformer_model, num_classes=5, hidden_dim=256, dropout=0.4, num_heads=4):
+        super().__init__()
+        self.transformer = transformer_model
+        trans_hidden = transformer_model.config.hidden_size
+
+        self.attention_pool = nn.MultiheadAttention(
+            embed_dim=trans_hidden,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True
+        )
+        self.query = nn.Parameter(torch.randn(1, 1, trans_hidden))
+
+        self.adapter_1 = nn.Sequential(
+            nn.Linear(trans_hidden, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout)
+        )
+        self.adapter_2 = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout)
+        )
+        self.adapter_3 = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.LayerNorm(hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(dropout)
+        )
+        self.gate = nn.Linear(hidden_dim, hidden_dim)
+        self.classifier = nn.Linear(hidden_dim // 2, num_classes)
+
+    def forward(self, input_ids, attention_mask, labels=None):
+        outputs = self.transformer(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=False,
+            return_dict=True
+        )
+        hidden = outputs.last_hidden_state
+        batch_size = hidden.size(0)
+        query = self.query.expand(batch_size, -1, -1)
+        pooled, _ = self.attention_pool(query, hidden, hidden, key_padding_mask=~attention_mask.bool())
+        pooled = pooled.squeeze(1)
+        x = self.adapter_1(pooled)
+        residual = x
+        x = self.adapter_2(x)
+        gate = torch.sigmoid(self.gate(x))
+        x = gate * x + (1 - gate) * residual
+        x = self.adapter_3(x)
+        logits = self.classifier(x)
+        out = type('Output', (), {'logits': logits})()
+        if labels is not None:
+            out.loss = nn.CrossEntropyLoss()(logits, labels)
+        return out
+
+
+class BalancedFinalModel(nn.Module):
+    """Production-ready: transformer + mean pooling + balanced adapter."""
+    def __init__(self, transformer_model, num_classes=5, hidden_dim=256, dropout=0.3):
+        super().__init__()
+        self.transformer = transformer_model
+        trans_hidden = transformer_model.config.hidden_size
+        self.adapter = nn.Sequential(
+            nn.Linear(trans_hidden, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.LayerNorm(hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(dropout)
+        )
+        self.classifier = nn.Linear(hidden_dim // 2, num_classes)
+
+    def forward(self, input_ids, attention_mask, labels=None):
+        outputs = self.transformer(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=False,
+            return_dict=True
+        )
+        hidden = outputs.last_hidden_state
+        mask = attention_mask.unsqueeze(-1)
+        summed = (hidden * mask).sum(1)
+        counts = mask.sum(1).clamp(min=1)
+        pooled = summed / counts
+        adapted = self.adapter(pooled)
+        logits = self.classifier(adapted)
+        out = type('Output', (), {'logits': logits})()
+        if labels is not None:
+            out.loss = nn.CrossEntropyLoss()(logits, labels)
+        return out
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Legal Text Decoder API",
@@ -116,70 +276,94 @@ OUTPUT_DIR = os.getenv('OUTPUT_DIR', '/app/output')
 
 
 def load_transformer_model():
-    """Load advanced FusionModel transformer"""
+    """Load the best trained checkpoint (best_model.pt or best_*.pt)."""
     try:
-        from transformers import AutoTokenizer, AutoModelForSequenceClassification
-        
-        model_dir = os.path.join(OUTPUT_DIR, 'models', 'best_transformer_model')
-        label_map_path = os.path.join(OUTPUT_DIR, 'models', 'label_mapping.json')
-        fusion_config_path = os.path.join(model_dir, 'fusion_config.json')
-        
-        if not os.path.exists(model_dir):
+        from transformers import AutoTokenizer, AutoModel
+
+        models_dir = os.path.join(OUTPUT_DIR, 'models')
+        best_overall_path = os.path.join(models_dir, 'best_overall.json')
+        generic_best = os.path.join(models_dir, 'best_model.pt')
+
+        best_checkpoint = None
+        best_name = None
+
+        if os.path.exists(best_overall_path):
+            with open(best_overall_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                best_checkpoint = data.get('best_checkpoint')
+                best_name = data.get('best_model_name')
+
+        if not best_checkpoint or not os.path.exists(best_checkpoint):
+            # Fallbacks: generic best, then any best_*.pt
+            if os.path.exists(generic_best):
+                best_checkpoint = generic_best
+            else:
+                pt_candidates = sorted(Path(models_dir).glob('best_*.pt'))
+                if pt_candidates:
+                    best_checkpoint = str(pt_candidates[0])
+                    if not best_name:
+                        best_name = pt_candidates[0].stem.replace('best_', '')
+
+        if not best_checkpoint or not os.path.exists(best_checkpoint):
+            print("No checkpoint found to load")
             return None
-        
-        # Load label mapping
-        label_mapping = {}
-        if os.path.exists(label_map_path):
-            with open(label_map_path, 'r', encoding='utf-8') as f:
-                label_mapping = json.load(f)
-        
-        # Load fusion config
-        fusion_config = {}
-        if os.path.exists(fusion_config_path):
-            with open(fusion_config_path, 'r', encoding='utf-8') as f:
-                fusion_config = json.load(f)
-        
+
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
-        # Load metadata to find base model name
-        metadata = {}
-        metadata_path = os.path.join(model_dir, 'metadata.json')
-        if os.path.exists(metadata_path):
-            with open(metadata_path, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
-        
-        # Load base transformer from HuggingFace (using model name from metadata)
-        base_model_name = metadata.get('model_name', 'SZTAKI-HLT/hubert-base-cc')
-        from transformers import AutoModel
+
+        # Load checkpoint and label mapping
+        checkpoint = torch.load(best_checkpoint, map_location=device)
+        label2id = checkpoint.get('label2id', {})
+        id2label = checkpoint.get('id2label', {})
+
+        label_map_path = os.path.join(models_dir, 'label_mapping.json')
+        if not label2id and os.path.exists(label_map_path):
+            with open(label_map_path, 'r', encoding='utf-8') as f:
+                lm = json.load(f)
+                label2id = lm.get('label2id', {})
+                id2label = lm.get('id2label', {})
+
+        num_classes = len(label2id) if label2id else 5
+
+        # Choose base transformer
+        base_model_name = os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc')
         base_transformer = AutoModel.from_pretrained(base_model_name)
-        
-        # Create FusionModel wrapper
-        fusion_model = FusionModel(
-            base_transformer,
-            num_classes=fusion_config.get('num_classes', 5),
-            feature_dim=fusion_config.get('feature_dim', 8),
-            hidden_dim=fusion_config.get('hidden_dim', 256),
-            dropout=fusion_config.get('dropout', 0.3)
-        )
-        
-        # Load saved weights
-        model_weights_path = os.path.join(model_dir, 'pytorch_model.bin')
-        if os.path.exists(model_weights_path):
-            weights = torch.load(model_weights_path, map_location=device, weights_only=False)
-            fusion_model.load_state_dict(weights, strict=False)
-        
-        fusion_model.to(device)
-        fusion_model.eval()
-        
-        # Load tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(model_dir)
-        
+
+        # Map best_name to the correct architecture
+        name_to_cls = {
+            'Step1_Baseline': Step1_BaselineModel,
+            'Step2_Extended': Step2_ExtendedModel,
+            'Step3_Advanced': Step3_AdvancedModel,
+            'Final_Balanced': BalancedFinalModel,
+            'BalancedFinalModel': BalancedFinalModel,
+        }
+        # Normalize best_name if present
+        model_cls = BalancedFinalModel
+        if best_name:
+            for key, cls in name_to_cls.items():
+                if best_name.startswith(key) or best_name.endswith(key.lower()):
+                    model_cls = cls
+                    break
+
+        model = model_cls(base_transformer, num_classes=num_classes)
+        model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+        model.to(device)
+        model.eval()
+
+        tokenizer = AutoTokenizer.from_pretrained(base_model_name)
+
+        # Build mapping to use in responses
+        if not id2label and label2id:
+            id2label = {v: str(k) for k, v in label2id.items()}
+
         return {
-            'model': fusion_model,
+            'model': model,
             'tokenizer': tokenizer,
-            'label_mapping': label_mapping,
+            'label_mapping': {'label2id': label2id, 'id2label': id2label},
             'device': device,
-            'is_fusion': True
+            'is_fusion': False,
+            'checkpoint': best_checkpoint,
+            'base_model_name': base_model_name,
+            'model_name': best_name or model_cls.__name__
         }
     except Exception as e:
         print(f"Warning: Could not load transformer model: {e}")
@@ -213,9 +397,10 @@ async def root():
     available = []
     loaded = list(models.keys())
     
-    # Check which models are available
-    transformer_path = os.path.join(OUTPUT_DIR, 'models', 'best_transformer_model')
-    if os.path.exists(transformer_path):
+    models_dir = os.path.join(OUTPUT_DIR, 'models')
+    generic_best = os.path.join(models_dir, 'best_model.pt')
+    pt_candidates = list(Path(models_dir).glob('best_*.pt'))
+    if os.path.exists(generic_best) or pt_candidates:
         available.append('transformer')
     
     return HealthResponse(

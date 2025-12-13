@@ -21,22 +21,21 @@ def check_models_exist():
         logger.error(f"Models directory not found: {models_dir}")
         return False
     
-    transformer_model = models_dir / 'best_transformer_model'
-    baseline_model = models_dir / 'baseline_model.pkl'
-    
-    if not transformer_model.exists():
-        logger.warning("Transformer model not found!")
-        
-    if not baseline_model.exists():
-        logger.warning("Baseline model not found!")
-    
-    # At least one model should exist
-    if transformer_model.exists() or baseline_model.exists():
-        logger.info("Models found, ready to start API service")
-        return True
-    else:
-        logger.error("No models found! Cannot start API service.")
+    # New logic: accept any best_*.pt checkpoint or generic best_model.pt as valid
+    pt_candidates = list(models_dir.glob('best_*.pt'))
+    generic_best = models_dir / 'best_model.pt'
+    label_map = models_dir / 'label_mapping.json'
+
+    has_checkpoint = generic_best.exists() or len(pt_candidates) > 0
+    if not has_checkpoint:
+        logger.error("No model checkpoints found (expected best_model.pt or best_*.pt)")
         return False
+
+    if not label_map.exists():
+        logger.warning("label_mapping.json not found; will rely on checkpoint label2id if present")
+
+    logger.info("Models found, ready to start API service")
+    return True
 
 
 def start_api_service():
