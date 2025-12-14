@@ -39,7 +39,7 @@ Ez a projekt jogi szövegek érthetőségének automatikus értékelését oldja
 
 ### Extra Credit Justification
 
-A projekt az Outstanding Level minden követelményét teljesíti és az alábbi innovatív megoldásokat tartalmazza:
+A projekt az Outstanding Level követelményeit teljesíti és az alábbi megoldásokat tartalmazza:
 
 1. **Progresszív modellfejlesztés**: 4 különböző architektúra szisztematikus összehasonlítása (Baseline → Extended → Advanced → Final Balanced) automatizált pipeline-ban, részletes összehasonlító vizualizációkkal.
 
@@ -53,18 +53,12 @@ A projekt az Outstanding Level minden követelményét teljesíti és az alábbi
    - Streamlit frontend interaktív vizualizációkkal (osztály valószínűségek, confidence)
    - Konténerizált deployment (API + Frontend egy stack-ben)
 
-4. **Automatizált adatgyűjtés**: SharePoint integráció automatikus ZIP letöltéssel és kicsomagolással (fallback mechanizmussal).
-
-5. **Részletes metrikák és vizualizációk**:
+4. **Részletes metrikák és vizualizációk**:
    - Readability metrikák (Flesch, Gunning Fog, SMOG, TTR, MATTR, hapax ratio)
    - TF-IDF top words osztályonként
    - Korrelációs mátrix feature-ök között
    - Training history plots minden modellre
    - Per-class precision/recall/F1/support bar chart-ok
-
-6. **Overfitting sanity check**: A baseline modell automatikusan ellenőrzi, hogy képes-e 100% accuracy-re egyetlen batch-en, mielőtt teljes tréningbe kezd (early bug detection).
-
-7. **Explorációs stratégia**: Subset-alapú gyors kísérletezés (33% adat), majd a győztes modell teljes adaton való retrain-je, jelentős időmegtakarítással.
 
 ### Data Preparation
 
