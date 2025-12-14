@@ -29,12 +29,32 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def find_best_model(models_dir: Path) -> Path:
-    """Find and return path to best model checkpoint."""
+    """Resolve best checkpoint produced by 04_incremental_model_development.
+
+    Priority:
+    1) models/best_overall.json → best_checkpoint
+    2) models/best_model.pt
+    3) models/best_*.pt (prefer Final_Balanced)
+    """
+    best_overall = models_dir / 'best_overall.json'
+    if best_overall.exists():
+        try:
+            with open(best_overall, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            cp = data.get('best_checkpoint')
+            if cp and Path(cp).exists():
+                return Path(cp)
+        except Exception:
+            pass
+
+    generic_best = models_dir / 'best_model.pt'
+    if generic_best.exists():
+        return generic_best
+
     best_models = list(models_dir.glob('best_*.pt'))
     if not best_models:
         raise FileNotFoundError(f"No best_*.pt checkpoints found in {models_dir}")
-    # Prefer Final_Balanced, fallback to latest best_*
-    final_balanced = [m for m in best_models if 'Final_Balanced' in m.name]
+    final_balanced = [m for m in best_models if 'Final_Balanced' in m.name or 'final_balanced' in m.name.lower()]
     return final_balanced[0] if final_balanced else best_models[-1]
 
 

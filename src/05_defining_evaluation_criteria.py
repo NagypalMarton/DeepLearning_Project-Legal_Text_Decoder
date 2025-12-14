@@ -35,14 +35,37 @@ except Exception as e:
 
 
 def find_best_model(models_dir: str):
-    """Find and return path to best model checkpoint."""
-    models_path = Path(models_dir)
-    best_models = list(models_path.glob('best_*.pt'))
-    if not best_models:
-        raise FileNotFoundError(f"No best_*.pt checkpoints found in {models_dir}")
-    # Prefer Final_Balanced, fallback to latest best_*
-    final_balanced = [m for m in best_models if 'Final_Balanced' in m.name]
-    return str(final_balanced[0] if final_balanced else best_models[-1])
+	"""Resolve the best model checkpoint from outputs of 04_incremental_model_development.
+
+	Priority:
+	1) models/best_overall.json → {"best_checkpoint": "/path/to/best.pt"}
+	2) models/best_model.pt
+	3) first matching models/best_*.pt (prefer Final_Balanced if present, else latest)
+	"""
+	models_path = Path(models_dir)
+	# 1) best_overall.json
+	best_overall = models_path / 'best_overall.json'
+	if best_overall.exists():
+		try:
+			with open(best_overall, 'r', encoding='utf-8') as f:
+				data = json.load(f)
+			best_checkpoint = data.get('best_checkpoint')
+			if best_checkpoint and Path(best_checkpoint).exists():
+				return str(best_checkpoint)
+		except Exception:
+			pass
+
+	# 2) generic best_model.pt
+	generic_best = models_path / 'best_model.pt'
+	if generic_best.exists():
+		return str(generic_best)
+
+	# 3) any best_*.pt, prefer Final_Balanced
+	best_models = list(models_path.glob('best_*.pt'))
+	if not best_models:
+		raise FileNotFoundError(f"No best_*.pt checkpoints found in {models_dir}")
+	final_balanced = [m for m in best_models if 'Final_Balanced' in m.name or 'final_balanced' in m.name.lower()]
+	return str(final_balanced[0] if final_balanced else best_models[-1])
 
 
 def ensure_eval_dir(base_output: str):
@@ -118,12 +141,7 @@ def main():
 	models_dir = os.path.join(base_output, 'models')
 	eval_dir = ensure_eval_dir(base_output)
 
-	model_path = os.path.join(models_dir, 'best_transformer_model')
 	test_path = os.path.join(processed_dir, 'test.csv')
-
-	if not os.path.isdir(model_path):
-		print(f"Transformer model not found at {model_path}. Train the transformer first (04_incremental_model_development.py).")
-		return
 
 	if not os.path.exists(test_path):
 		print(f"Test CSV not found at {test_path}. Run data processing first (02_data_cleansing_and_preparation.py).")
@@ -176,14 +194,27 @@ def main():
 	checkpoint = torch.load(best_checkpoint_path, map_location=device)
 	label2id = checkpoint['label2id']
 	id2label = {int(k): v for k, v in checkpoint['id2label'].items()}
-	
-	# Load base transformer model and create model instance
+
+	# Instantiate the exact trained architecture from 04_incremental_model_development
 	transformer_model_name = os.getenv('TRANSFORMER_MODEL', 'SZTAKI-HLT/hubert-base-cc')
-	model = AutoModelForSequenceClassification.from_pretrained(transformer_model_name, num_labels=len(id2label))
-	model.load_state_dict(checkpoint['model_state_dict'])
+	base_transformer = AutoModel.from_pretrained(transformer_model_name)
+
+	from importlib import import_module
+	inc = import_module('04_incremental_model_development')
+	fname = Path(best_checkpoint_path).name.lower()
+	if 'final_balanced' in fname:
+		model = inc.BalancedFinalModel(base_transformer, num_classes=len(id2label))
+	elif 'step3_advanced' in fname:
+		model = inc.Step3_AdvancedModel(base_transformer, num_classes=len(id2label))
+	elif 'step2_extended' in fname:
+		model = inc.Step2_ExtendedModel(base_transformer, num_classes=len(id2label))
+	else:
+		model = inc.Step1_BaselineModel(base_transformer, num_classes=len(id2label))
+
+	model.load_state_dict(checkpoint['model_state_dict'], strict=False)
 	model.to(device)
 	model.eval()
-	
+
 	# Load tokenizer
 	tokenizer = AutoTokenizer.from_pretrained(transformer_model_name)
 
@@ -202,6 +233,9 @@ def main():
 	# Create dataset and dataloader
 	batch_size = int(os.getenv('BATCH_SIZE', '8'))
 	max_length = int(os.getenv('MAX_LENGTH', '384'))
+	# Evaluation uses transformer-only path; disable fusion features by default
+	use_fusion = False
+	stats = None
 	test_dataset = TransformerDataset(X_test, tokenizer, max_length, use_features=use_fusion, stats=stats)
 	test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
