@@ -4,6 +4,7 @@ from pathlib import Path
 import random
 import shutil
 import argparse
+import warnings
 
 import numpy as np
 import math
@@ -25,6 +26,9 @@ import torch.nn.functional as F
 import re
 from datetime import datetime
 
+# Suppress UserWarning about newly initialized classifier weights
+warnings.filterwarnings('ignore', message='.*Some weights of.*were not initialized from the model checkpoint.*')
+warnings.filterwarnings('ignore', message='.*You should probably TRAIN this model on a down-stream task.*')
 
 def plot_confusion_matrix(y_true, y_pred, labels, save_path, split_name='Test'):
 	cm = confusion_matrix(y_true, y_pred, labels=labels)
@@ -1131,7 +1135,19 @@ def main():
         from transformers import AutoModel
         checkpoint = torch.load(best_result['best_checkpoint'], map_location=device)
         id2label_test = {int(k): v for k, v in checkpoint['id2label'].items()}
-        label2id_test = checkpoint['label2id']
+        # Normalize label2id keys to support both string and int lookups
+        raw_label2id = checkpoint['label2id']
+        num_classes_test = len(raw_label2id)  # Store actual class count before normalization
+        label2id_test = {}
+        for k, v in raw_label2id.items():
+            label2id_test[k] = v
+            label2id_test[str(k)] = v
+            try:
+                ik = int(k)
+                label2id_test[ik] = v
+                label2id_test[str(ik)] = v
+            except Exception:
+                pass
         
         base_transformer_test = AutoModel.from_pretrained(model_name)
         
@@ -1148,7 +1164,7 @@ def main():
                 test_model_cls = cls
                 break
         
-        test_model = test_model_cls(base_transformer_test, num_classes=len(label2id_test))
+        test_model = test_model_cls(base_transformer_test, num_classes=num_classes_test)
         test_model.load_state_dict(checkpoint['model_state_dict'])
         test_model.to(device)
         test_model.eval()
@@ -1156,7 +1172,25 @@ def main():
         # Prepare test data
         y_test_str = test_df['label'].astype(str).tolist()
         y_test_numeric = [normalize_label(label) for label in y_test_str]
-        y_test_ids = [label2id_test[n] for n in y_test_numeric]
+        # Robust lookup for test label ids
+        def _lookup_test_id(n):
+            if n in label2id_test:
+                return label2id_test[n]
+            s = str(n)
+            if s in label2id_test:
+                return label2id_test[s]
+            try:
+                i = int(n)
+                if i in label2id_test:
+                    return label2id_test[i]
+                si = str(i)
+                if si in label2id_test:
+                    return label2id_test[si]
+            except Exception:
+                pass
+            raise KeyError(f"Test label '{n}' not found in label2id_test keys: {list(raw_label2id.keys())}")
+
+        y_test_ids = [_lookup_test_id(n) for n in y_test_numeric]
         X_test = test_df['text'].astype(str).tolist()
         test_dataset = LegalTextDataset(X_test, y_test_ids, tokenizer, max_length)
         test_loader_eval = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
@@ -1204,7 +1238,8 @@ def main():
         
         # Additional metrics
         probs_array = np.array(test_probs)
-        label_list = sorted(label2id_test.keys(), key=lambda x: label2id_test[x])
+        # Use raw_label2id keys to get unique label list (avoid duplicates from normalization)
+        label_list = sorted(raw_label2id.keys(), key=lambda x: raw_label2id[x])
 
         # Map labels to indices robustly whether keys are ints or strings
         def _label_to_index(lbl):
@@ -1235,14 +1270,14 @@ def main():
             test_report['roc_auc_weighted'] = None
         
         try:
-            test_log_loss_val = log_loss(y_true_indices, probs_array, labels=list(range(len(label2id_test))))
+            test_log_loss_val = log_loss(y_true_indices, probs_array, labels=list(range(num_classes_test)))
             test_report['log_loss'] = float(test_log_loss_val)
         except Exception as e:
             print(f"Could not compute test log loss: {e}")
             test_report['log_loss'] = None
         
         # Weighted FN cost
-        cm_test = confusion_matrix(y_true_indices, y_pred_indices, labels=list(range(len(label2id_test))))
+        cm_test = confusion_matrix(y_true_indices, y_pred_indices, labels=list(range(num_classes_test)))
         fn_costs = []
         for i, label in enumerate(label_list):
             try:
@@ -1259,8 +1294,13 @@ def main():
             json.dump(test_report, f, ensure_ascii=False, indent=2)
         print(f"Saved test report to {test_report_path}")
         print(f"  Test Accuracy: {test_report['accuracy']:.4f}, Weighted F1: {test_report.get('weighted avg', {}).get('f1-score', 0):.4f}, MAE: {test_mae:.4f}, RMSE: {test_rmse:.4f}")
-        if test_report.get('roc_auc_weighted') is not None:
-            print(f"  Test ROC AUC: {test_report['roc_auc_weighted']:.4f}, Log Loss: {test_report.get('log_loss', 0):.4f}, Weighted FN Cost: {test_report.get('weighted_fn_cost', 0):.1f}")
+        # Safely print optional metrics that may be None
+        roc_auc_val = test_report.get('roc_auc_weighted')
+        log_loss_val = test_report.get('log_loss')
+        weighted_fn_cost_val = test_report.get('weighted_fn_cost', 0)
+        roc_auc_str = f"{roc_auc_val:.4f}" if isinstance(roc_auc_val, (float, int)) else "N/A"
+        log_loss_str = f"{log_loss_val:.4f}" if isinstance(log_loss_val, (float, int)) else "N/A"
+        print(f"  Test ROC AUC: {roc_auc_str}, Log Loss: {log_loss_str}, Weighted FN Cost: {weighted_fn_cost_val:.1f}")
         
         # Generate plots
         cm_path_test = os.path.join(reports_dir, f'04-expansion_{best_name}_test_confusion_matrix.png')

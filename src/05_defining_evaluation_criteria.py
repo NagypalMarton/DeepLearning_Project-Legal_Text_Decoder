@@ -2,6 +2,7 @@ import os
 import json
 from pathlib import Path
 import re
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -17,6 +18,10 @@ import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
 import sys
 import textstat
+
+# Suppress UserWarning about newly initialized classifier weights
+warnings.filterwarnings('ignore', message='.*Some weights of.*were not initialized from the model checkpoint.*')
+warnings.filterwarnings('ignore', message='.*You should probably TRAIN this model on a down-stream task.*')
 
 # Import helper functions from incremental development script
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import re
+import warnings
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -16,6 +17,10 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+
+# Suppress UserWarning about newly initialized classifier weights
+warnings.filterwarnings('ignore', message='.*Some weights of.*were not initialized from the model checkpoint.*')
+warnings.filterwarnings('ignore', message='.*You should probably TRAIN this model on a down-stream task.*')
 
 # Ensure we can import helper utilities from incremental development
 import sys
