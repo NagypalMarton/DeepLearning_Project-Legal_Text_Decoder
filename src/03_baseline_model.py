@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
+from transformers import logging as transformers_logging
 from sklearn.metrics import classification_report, confusion_matrix, mean_absolute_error, mean_squared_error, roc_auc_score, log_loss
 import matplotlib
 matplotlib.use("Agg")  # headless environments (Docker)
@@ -15,6 +16,9 @@ import math
 from tqdm.auto import tqdm
 import sys
 from utils import setup_logger
+
+# Suppress transformers warnings about newly initialized classifier weights
+transformers_logging.set_verbosity_error()
 
 logger = setup_logger(__name__)
 
@@ -478,7 +482,8 @@ def main():
 	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 	logger.info(f"Using device: {device}")
 
-
+	# Load tokenizer and model
+	# Note: Classifier weights are intentionally randomly initialized for this new classification task
 	tokenizer = AutoTokenizer.from_pretrained(model_name)
 	model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=len(label2id))
 	model.to(device)

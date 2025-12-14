@@ -86,7 +86,7 @@ Ez a projekt teljes mértékben Dockerben fut. Az alábbi parancsok segítségé
 Futtasd az alábbi parancsot a repository gyökérkönyvtárában a Docker image build-eléséhez:
 
 ```bash
-docker build -t dl-project-legal-text-decoder .
+docker build -t dl-project-legal-text-decoder:1.0 .
 ```
 
 #### Run - Training Only (log mentéssel)

@@ -1205,8 +1205,27 @@ def main():
         # Additional metrics
         probs_array = np.array(test_probs)
         label_list = sorted(label2id_test.keys(), key=lambda x: label2id_test[x])
-        y_true_indices = [label2id_test[str(t)] for t in test_trues]
-        y_pred_indices = [label2id_test[str(p)] for p in test_preds]
+
+        # Map labels to indices robustly whether keys are ints or strings
+        def _label_to_index(lbl):
+            if lbl in label2id_test:
+                return label2id_test[lbl]
+            s = str(lbl)
+            if s in label2id_test:
+                return label2id_test[s]
+            try:
+                i = int(lbl)
+                if i in label2id_test:
+                    return label2id_test[i]
+                si = str(i)
+                if si in label2id_test:
+                    return label2id_test[si]
+            except Exception:
+                pass
+            raise KeyError(f"Label '{lbl}' not found in label2id_test keys: {list(label2id_test.keys())}")
+
+        y_true_indices = [_label_to_index(t) for t in test_trues]
+        y_pred_indices = [_label_to_index(p) for p in test_preds]
         
         try:
             test_roc_auc = roc_auc_score(y_true_indices, probs_array, multi_class='ovr', average='weighted')
