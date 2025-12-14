@@ -98,7 +98,7 @@ Windows PowerShell-ben:
 docker run --rm --gpus all `
   -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" `
   -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" `
-  dl-project-legal-text-decoder > log/run.log 2>&1
+  dl-project-legal-text-decoder:1.0 > log/run.log 2>&1
 ```
 
 - A `> log/run.log 2>&1` rész biztosítja, hogy minden kimenet (stdout és stderr) mentésre kerül a `log/run.log` fájlba
@@ -118,7 +118,7 @@ docker run --rm --gpus all `
   -p 8501:8501 `
   -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" `
   -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" `
-  dl-project-legal-text-decoder > log/run.log 2>&1
+  dl-project-legal-text-decoder:1.0 > log/run.log 2>&1
 ```
 
 A szolgáltatások elérhetősége:
