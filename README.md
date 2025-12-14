@@ -50,7 +50,10 @@ A projekt az Outstanding Level követelményeit teljesíti és az alábbi megold
 
 3. **Production-ready ML szolgáltatás**:
    - FastAPI backend automatikus modell betöltéssel és validációval
-   - Streamlit frontend interaktív vizualizációkkal (osztály valószínűségek, confidence)
+     - Streamlit frontend interaktív vizualizációkkal és szöveg predikcióval:
+         - Szöveg beillesztése és real-time readability előrejelzés (1-5 skála)
+         - Osztály-valószínűségek megjelenítése (confidence szintek minden osztályhoz)
+         - Interaktív felhasználói élmény az előrejelzések jó értelmezéséhez
    - Konténerizált deployment (API + Frontend egy stack-ben)
 
 4. **Részletes metrikák és vizualizációk**:
