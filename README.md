@@ -77,17 +77,6 @@ A projekt az Outstanding Level minden követelményét teljesíti és az alábbi
 
 **Manuális alternatíva**: Ha a SharePoint link nem elérhető, helyezd a JSON fájlokat közvetlenül a `data/` mappába.
 
-**Feldolgozási lépések**:
-```bash
-# 1. Adatgyűjtés és EDA (automatikus letöltés SharePoint-ról)
-python src/01_data_acquisition_and_analysis.py
-
-# 2. Tisztítás és train/val/test split
-python src/02_data_cleansing_and_preparation.py
-```
-
-Az előkészített adatok a `output/processed/` mappába kerülnek (`train.csv`, `val.csv`, `test.csv`).
-
 ### Docker Instructions
 
 Ez a projekt teljes mértékben Dockerben fut. Az alábbi parancsok segítségével build-elheted és futtathatod a megoldást.
@@ -104,40 +93,20 @@ docker build -t dl-project-legal-text-decoder .
 
 Csak a tréning pipeline futtatásához (adat feldolgozás, tréning, értékelés) használd az alábbi parancsot. **A log mentéséhez (beadáshoz szükséges) átirányítjuk a kimenetet egy fájlba:**
 
-```bash
-docker run --rm --gpus all \
-  -v /path/to/your/data:/app/data \
-  -v /path/to/your/output:/app/output \
-  dl-project-legal-text-decoder > log/run.log 2>&1
-```
-
 Windows PowerShell-ben:
 ```powershell
 docker run --rm --gpus all `
-  -v "C:\path\to\your\data:/app/data" `
-  -v "C:\path\to\your\output:/app/output" `
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" `
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" `
   dl-project-legal-text-decoder > log/run.log 2>&1
 ```
 
-- Cseréld le `/path/to/your/data`-t a saját adat könyvtárad elérési útjára (vagy hagyd üresen, a script automatikusan letölti SharePoint-ról)
 - A `> log/run.log 2>&1` rész biztosítja, hogy minden kimenet (stdout és stderr) mentésre kerül a `log/run.log` fájlba
 - A konténer végigfuttatja az összes lépést: adat előkészítés, tréning, értékelés
 
 #### Run - Full Stack (API + Frontend)
 
 API és frontend szolgáltatások indításához használd az alábbi parancsot:
-
-```bash
-docker run --rm --gpus all \
-  -e START_API_SERVICE=1 \
-  -e START_FRONTEND_SERVICE=1 \
-  -e API_URL=http://localhost:8000 \
-  -p 8000:8000 \
-  -p 8501:8501 \
-  -v /path/to/your/data:/app/data \
-  -v /path/to/your/output:/app/output \
-  dl-project-legal-text-decoder > log/run.log 2>&1
-```
 
 Windows PowerShell-ben:
 ```powershell
@@ -147,14 +116,29 @@ docker run --rm --gpus all `
   -e API_URL=http://localhost:8000 `
   -p 8000:8000 `
   -p 8501:8501 `
-  -v "C:\path\to\your\data:/app/data" `
-  -v "C:\path\to\your\output:/app/output" `
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data:/app/data" `
+  -v "C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output:/app/output" `
   dl-project-legal-text-decoder > log/run.log 2>&1
 ```
 
 A szolgáltatások elérhetősége:
 - **API**: http://localhost:8000
 - **Frontend**: http://localhost:8501
+
+#### Fejlesztői műhely - Local futtatás (src/run.sh)
+
+A projekt **Nvidia GPU-n** lett fejlesztve. Local gépen történő futtatáshoz a `src/run.sh` script-et kell futtatni:
+
+**Előfeltételek:**
+- Python 3.10+
+- Nvidia GPU és CUDA 12.9 telepítve
+- Python virtual environment aktiválva
+
+**Adat- és output könyvtárak:**
+
+A projekt fejlesztésére az alábbi könyvtárak lesznek alapértelmezésben használatosak:
+- **Data mappa**: `C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\data`
+- **Output mappa**: `C:\Users\nagyp\.vscode\DeepLearning Project\attach_folders\output`
 
 ### File Structure and Functions
 
@@ -163,10 +147,10 @@ A repository az alábbi struktúrát követi:
 - **`src/`**: A gépi tanulási pipeline forráskódja
     - `01_data_acquisition_and_analysis.py`: Automatikus adatletöltés SharePoint-ról, JSON feldolgozás, EDA metrikák és vizualizációk
     - `02_data_cleansing_and_preparation.py`: Szöveg tisztítás, deduplikáció, stratifikált split (train/val/test)
-    - `03_baseline_model.py`: HuBERT baseline modell tréning overfitting sanity check-kel
-    - `04_incremental_model_development.py`: Progresszív modellfejlesztés (4 architektúra), automatikus összehasonlítás
-    - `05_defining_evaluation_criteria.py`: Teszt értékelés (confusion matrix, F1, MAE/RMSE)
-    - `06_advanced_evaluation.py`: Robusztusság és magyarázhatóság (perturbációk, attention analysis)
+    - `03_baseline_model.py`: HuBERT baseline modell tréning overfitting sanity check-kel, test értékelés (confusion matrix, metrika ábrák)
+    - `04_incremental_model_development.py`: Progresszív modellfejlesztés (4 architektúra), automatikus összehasonlítás, legjobb modell test set értékelése (confusion matrix, classwise/avg/error metrika ábrák)
+    - `05_defining_evaluation_criteria.py`: Teszt értékelés részletes ábrákkal (confusion matrix, metrics summary, classwise precision/recall/F1, average metrics, error metrics)
+    - `06_advanced_evaluation.py`: Robusztusság tesztelés (perturbációs ábrák) és magyarázhatóság (confusion pairs, attention analysis)
     - `07_start_api_service.py`: FastAPI backend indítása
     - `08_start_frontend_service.py`: Streamlit frontend indítása
     - `utils.py`: Logger konfigurációs segédfüggvények
@@ -195,27 +179,6 @@ A repository az alábbi struktúrát követi:
     - `README.md`: Projekt dokumentáció és használati útmutató
     - `payload.json`: Példa API request payload
     - `LICENSE`: Projekt licensz fájl
-
-### Environment Variables (Configuration)
-
-A projekt környezeti változók segítségével konfigurálható (nincs külön config.py):
-
-**Kötelező:**
-- `DATA_DIR`: Nyers adat könyvtár (alapértelmezett: `/app/data`)
-- `OUTPUT_DIR`: Kimenet könyvtár (alapértelmezett: `/app/output`)
-
-**Opcionális - Tréning:**
-- `TRANSFORMER_MODEL`: Base transformer modell neve (alapértelmezett: `SZTAKI-HLT/hubert-base-cc`)
-- `BATCH_SIZE`: Batch méret (alapértelmezett: `8`)
-- `MAX_LENGTH`: Tokenizálás max hossza (alapértelmezett: `320`)
-- `ENABLE_EMBEDDINGS`: SentenceTransformer embeddings generálása (alapértelmezett: `false`)
-
-**Opcionális - Services:**
-- `START_API_SERVICE`: API indítása (alapértelmezett: `0`, set `1` az engedélyezéshez)
-- `START_FRONTEND_SERVICE`: Frontend indítása (alapértelmezett: `0`, set `1` az engedélyezéshez)
-- `API_URL`: API URL a frontend számára (alapértelmezett: `http://localhost:8000`)
-- `API_HOST`, `API_PORT`: API host és port (alapértelmezett: `0.0.0.0:8000`)
-- `FRONTEND_HOST`, `FRONTEND_PORT`: Frontend host és port (alapértelmezett: `0.0.0.0:8501`)
 
 ### Output Structure
 

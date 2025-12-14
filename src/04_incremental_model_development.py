@@ -14,7 +14,7 @@ from torch import amp
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
 from torch.optim import AdamW
-from sklearn.metrics import classification_report, accuracy_score, f1_score, mean_absolute_error, mean_squared_error, confusion_matrix
+from sklearn.metrics import classification_report, accuracy_score, f1_score, mean_absolute_error, mean_squared_error, confusion_matrix, roc_auc_score, log_loss
 from sklearn.utils.class_weight import compute_class_weight
 import matplotlib
 matplotlib.use("Agg")
@@ -26,7 +26,141 @@ import re
 from datetime import datetime
 
 
-def set_seed(seed=42):
+def plot_confusion_matrix(y_true, y_pred, labels, save_path, split_name='Test'):
+	cm = confusion_matrix(y_true, y_pred, labels=labels)
+	fig, ax = plt.subplots(figsize=(6, 6))
+	im = ax.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+	ax.figure.colorbar(im, ax=ax)
+	ax.set(xticks=np.arange(cm.shape[1]), yticks=np.arange(cm.shape[0]),
+		   xticklabels=labels, yticklabels=labels,
+		   ylabel='True label', xlabel='Predicted label',
+		   title=f'Confusion Matrix ({split_name})')
+	plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+	thresh = cm.max() / 2.0 if cm.size else 0
+	for i in range(cm.shape[0]):
+		for j in range(cm.shape[1]):
+			ax.text(j, i, format(cm[i, j], 'd'), ha="center", va="center",
+					color="white" if cm[i, j] > thresh else "black")
+	fig.tight_layout()
+	fig.savefig(save_path, bbox_inches='tight', dpi=150)
+	plt.close(fig)
+
+
+def plot_metrics_summary(report, save_path, split_name='Test'):
+	metrics = {
+		'Accuracy': report.get('accuracy', 0),
+		'Weighted F1': report.get('weighted avg', {}).get('f1-score', 0),
+		'MAE': report.get('mae', 0),
+		'RMSE': report.get('rmse', 0)
+	}
+	fig, ax = plt.subplots(figsize=(10, 6))
+	colors = ['#2ecc71', '#3498db', '#e74c3c', '#f39c12']
+	bars = ax.bar(metrics.keys(), metrics.values(), color=colors, alpha=0.8)
+	ax.set_ylabel('Score / Error', fontsize=12)
+	ax.set_title(f'Model Metrics Summary ({split_name})', fontsize=14, fontweight='bold')
+	ax.set_ylim([0, max(max(metrics.values()) * 1.2, 1.0)])
+	ax.grid(axis='y', alpha=0.3, linestyle='--')
+	for bar, (name, value) in zip(bars, metrics.items()):
+		h = bar.get_height()
+		ax.text(bar.get_x() + bar.get_width()/2., h, f'{value:.4f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
+	fig.tight_layout()
+	fig.savefig(save_path, dpi=150, bbox_inches='tight')
+	plt.close(fig)
+
+
+def plot_classwise_bars(report, save_dir, split_name='Test'):
+	reserved = {"accuracy", "macro avg", "weighted avg"}
+	class_keys = [k for k in report.keys() if k not in reserved]
+	class_keys = [k for k in class_keys if isinstance(report[k], dict) and 'precision' in report[k]]
+	if not class_keys:
+		return
+	class_keys_sorted = class_keys
+
+	def _plot_metric(metric_name, filename, color):
+		values = [report[c].get(metric_name, 0) for c in class_keys_sorted]
+		fig, ax = plt.subplots(figsize=(max(8, len(values)*0.9), 5))
+		ax.bar(class_keys_sorted, values, color=color, alpha=0.85)
+		ax.set_title(f'{metric_name.title()} by Class ({split_name})', fontsize=14, fontweight='bold')
+		ax.set_ylabel(metric_name.title())
+		ax.set_ylim([0, 1])
+		plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+		for i, v in enumerate(values):
+			ax.text(i, v + 0.01, f"{v:.3f}", ha='center', va='bottom', fontsize=9)
+		fig.tight_layout()
+		fig.savefig(os.path.join(save_dir, filename), dpi=150, bbox_inches='tight')
+		plt.close(fig)
+
+	_plot_metric('precision', f'04-expansion_{split_name}_class_precision.png', '#5dade2')
+	_plot_metric('recall', f'04-expansion_{split_name}_class_recall.png', '#58d68d')
+	_plot_metric('f1-score', f'04-expansion_{split_name}_class_f1.png', '#f4d03f')
+
+	supports = [report[c].get('support', 0) for c in class_keys_sorted]
+	fig, ax = plt.subplots(figsize=(max(8, len(supports)*0.9), 5))
+	ax.bar(class_keys_sorted, supports, color='#a569bd', alpha=0.85)
+	ax.set_title(f'Support by Class ({split_name})', fontsize=14, fontweight='bold')
+	ax.set_ylabel('Support (count)')
+	plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+	for i, v in enumerate(supports):
+		ax.text(i, v, f"{int(v)}", ha='center', va='bottom', fontsize=9)
+	fig.tight_layout()
+	fig.savefig(os.path.join(save_dir, f'04-expansion_{split_name}_class_support.png'), dpi=150, bbox_inches='tight')
+	plt.close(fig)
+
+
+def plot_average_metrics(report, save_path, split_name='Test'):
+	metrics = ['precision', 'recall', 'f1-score']
+	macro = [report.get('macro avg', {}).get(m, 0) for m in metrics]
+	weighted = [report.get('weighted avg', {}).get(m, 0) for m in metrics]
+	x = np.arange(len(metrics))
+	width = 0.35
+	fig, ax = plt.subplots(figsize=(8, 5))
+	ax.bar(x - width/2, macro, width, label='Macro', color='#7fb3d5')
+	ax.bar(x + width/2, weighted, width, label='Weighted', color='#76d7c4')
+	ax.set_xticks(x)
+	ax.set_xticklabels([m.title() for m in metrics])
+	ax.set_ylim([0, 1])
+	ax.set_ylabel('Score')
+	ax.set_title(f'Average Metrics ({split_name})', fontsize=14, fontweight='bold')
+	ax.legend()
+	for i, v in enumerate(macro):
+		ax.text(i - width/2, v + 0.01, f"{v:.3f}", ha='center', va='bottom', fontsize=9)
+	for i, v in enumerate(weighted):
+		ax.text(i + width/2, v + 0.01, f"{v:.3f}", ha='center', va='bottom', fontsize=9)
+	fig.tight_layout()
+	fig.savefig(save_path, dpi=150, bbox_inches='tight')
+	plt.close(fig)
+
+
+def plot_error_metrics(mae, rmse, save_path, split_name='Test'):
+	labels = ['MAE', 'RMSE']
+	values = [mae, rmse]
+	fig, ax = plt.subplots(figsize=(6, 5))
+	colors = ['#e67e22', '#c0392b']
+	ax.bar(labels, values, color=colors, alpha=0.85)
+	ax.set_title(f'Error Metrics ({split_name})', fontsize=14, fontweight='bold')
+	ax.set_ylabel('Error')
+	for i, v in enumerate(values):
+		ax.text(i, v, f"{v:.4f}", ha='center', va='bottom', fontsize=10)
+	fig.tight_layout()
+	fig.savefig(save_path, dpi=150, bbox_inches='tight')
+	plt.close(fig)
+
+
+def label_to_numeric(labels):
+	numeric = []
+	for label in labels:
+		s = str(label).strip()
+		if s and s[0].isdigit():
+			numeric.append(int(s[0]))
+		else:
+			try:
+				numeric.append(int(s))
+			except ValueError:
+				numeric.append(0)
+	return np.array(numeric)
+
+
+def set_seed(seed: int):
     """Set random seed for reproducibility."""
     random.seed(seed)
     np.random.seed(seed)
@@ -984,6 +1118,160 @@ def main():
         print(f"  - {name}: {result['best_checkpoint']}")
     print(f"\n✓ PRODUCTION RECOMMENDED: {best_name}")
     print(f"  Val Weighted F1: {max(all_results.items(), key=lambda kv: kv[1]['val_weighted_f1'])[1]['val_weighted_f1']:.4f}")
+
+    # ============================================================================
+    # EVALUATE BEST MODEL ON TEST SET
+    # ============================================================================
+    if test_df is not None and len(test_df) > 0:
+        print(f"\n{'='*80}")
+        print(f"EVALUATING BEST MODEL ON TEST SET: {best_name}")
+        print(f"{'='*80}\n")
+        
+        # Reload best checkpoint and load fresh transformer
+        from transformers import AutoModel
+        checkpoint = torch.load(best_result['best_checkpoint'], map_location=device)
+        id2label_test = {int(k): v for k, v in checkpoint['id2label'].items()}
+        label2id_test = checkpoint['label2id']
+        
+        base_transformer_test = AutoModel.from_pretrained(model_name)
+        
+        # Instantiate correct model class based on best_name
+        name_to_cls = {
+            'Step1_Baseline': Step1_BaselineModel,
+            'Step2_Extended': Step2_ExtendedModel,
+            'Step3_Advanced': Step3_AdvancedModel,
+            'Final_Balanced': BalancedFinalModel,
+        }
+        test_model_cls = BalancedFinalModel
+        for key, cls in name_to_cls.items():
+            if best_name.startswith(key) or key.lower() in best_name.lower():
+                test_model_cls = cls
+                break
+        
+        test_model = test_model_cls(base_transformer_test, num_classes=len(label2id_test))
+        test_model.load_state_dict(checkpoint['model_state_dict'])
+        test_model.to(device)
+        test_model.eval()
+        
+        # Prepare test data
+        y_test_str = test_df['label'].astype(str).tolist()
+        y_test_numeric = [normalize_label(label) for label in y_test_str]
+        y_test_ids = [label2id_test[n] for n in y_test_numeric]
+        X_test = test_df['text'].astype(str).tolist()
+        test_dataset = LegalTextDataset(X_test, y_test_ids, tokenizer, max_length)
+        test_loader_eval = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        
+        # Evaluate on test
+        criterion_test = nn.CrossEntropyLoss()
+        test_model.eval()
+        test_loss = 0.0
+        test_preds = []
+        test_trues = []
+        test_probs = []
+        
+        with torch.no_grad():
+            for batch in tqdm(test_loader_eval, desc="Test Evaluation", disable=not sys.stdout.isatty()):
+                input_ids = batch['input_ids'].to(device)
+                attention_mask = batch['attention_mask'].to(device)
+                labels = batch['label'].to(device)
+                
+                outputs = test_model(input_ids=input_ids, attention_mask=attention_mask)
+                logits = outputs.logits
+                loss = criterion_test(logits, labels)
+                
+                test_loss += loss.item() * input_ids.size(0)
+                preds = torch.argmax(logits, dim=1)
+                probs = torch.softmax(logits, dim=1)
+                
+                test_preds.extend([id2label_test[int(p)] for p in preds.cpu().numpy()])
+                test_trues.extend([id2label_test[int(t)] for t in labels.cpu().numpy()])
+                test_probs.extend(probs.cpu().numpy())
+        
+        test_avg_loss = test_loss / max(1, len(test_dataset))
+        test_acc = accuracy_score(test_trues, test_preds)
+        
+        # Compute comprehensive metrics
+        all_labels_test = sorted(list(set(test_trues) | set(test_preds)))
+        test_report = classification_report(test_trues, test_preds, labels=all_labels_test, output_dict=True, zero_division=0)
+        
+        # Ordinal metrics
+        y_true_num = label_to_numeric(test_trues)
+        y_pred_num = label_to_numeric(test_preds)
+        test_mae = mean_absolute_error(y_true_num, y_pred_num)
+        test_rmse = np.sqrt(mean_squared_error(y_true_num, y_pred_num))
+        test_report['mae'] = float(test_mae)
+        test_report['rmse'] = float(test_rmse)
+        
+        # Additional metrics
+        probs_array = np.array(test_probs)
+        label_list = sorted(label2id_test.keys(), key=lambda x: label2id_test[x])
+        y_true_indices = [label2id_test[str(t)] for t in test_trues]
+        y_pred_indices = [label2id_test[str(p)] for p in test_preds]
+        
+        try:
+            test_roc_auc = roc_auc_score(y_true_indices, probs_array, multi_class='ovr', average='weighted')
+            test_report['roc_auc_weighted'] = float(test_roc_auc)
+        except Exception as e:
+            print(f"Could not compute test ROC AUC: {e}")
+            test_report['roc_auc_weighted'] = None
+        
+        try:
+            test_log_loss_val = log_loss(y_true_indices, probs_array, labels=list(range(len(label2id_test))))
+            test_report['log_loss'] = float(test_log_loss_val)
+        except Exception as e:
+            print(f"Could not compute test log loss: {e}")
+            test_report['log_loss'] = None
+        
+        # Weighted FN cost
+        cm_test = confusion_matrix(y_true_indices, y_pred_indices, labels=list(range(len(label2id_test))))
+        fn_costs = []
+        for i, label in enumerate(label_list):
+            try:
+                severity = int(str(label)[0]) if str(label)[0].isdigit() else 1
+            except:
+                severity = 1
+            fn_count = cm_test[:, i].sum() - cm_test[i, i]
+            fn_costs.append(fn_count * severity)
+        test_report['weighted_fn_cost'] = float(sum(fn_costs))
+        
+        # Save report
+        test_report_path = os.path.join(reports_dir, f'04-expansion_{best_name}_test_report.json')
+        with open(test_report_path, 'w', encoding='utf-8') as f:
+            json.dump(test_report, f, ensure_ascii=False, indent=2)
+        print(f"Saved test report to {test_report_path}")
+        print(f"  Test Accuracy: {test_report['accuracy']:.4f}, Weighted F1: {test_report.get('weighted avg', {}).get('f1-score', 0):.4f}, MAE: {test_mae:.4f}, RMSE: {test_rmse:.4f}")
+        if test_report.get('roc_auc_weighted') is not None:
+            print(f"  Test ROC AUC: {test_report['roc_auc_weighted']:.4f}, Log Loss: {test_report.get('log_loss', 0):.4f}, Weighted FN Cost: {test_report.get('weighted_fn_cost', 0):.1f}")
+        
+        # Generate plots
+        cm_path_test = os.path.join(reports_dir, f'04-expansion_{best_name}_test_confusion_matrix.png')
+        plot_confusion_matrix(test_trues, test_preds, all_labels_test, cm_path_test, split_name='Test')
+        print(f"Saved test confusion matrix to {cm_path_test}")
+        
+        metrics_plot_path_test = os.path.join(reports_dir, f'04-expansion_{best_name}_test_metrics_summary.png')
+        plot_metrics_summary(test_report, metrics_plot_path_test, split_name='Test')
+        print(f"Saved test metrics summary to {metrics_plot_path_test}")
+        
+        plot_classwise_bars(test_report, reports_dir, split_name='Test')
+        avg_metrics_path_test = os.path.join(reports_dir, f'04-expansion_{best_name}_test_avg_metrics.png')
+        plot_average_metrics(test_report, avg_metrics_path_test, split_name='Test')
+        print(f"Saved test avg metrics to {avg_metrics_path_test}")
+        
+        error_metrics_path_test = os.path.join(reports_dir, f'04-expansion_{best_name}_test_errors.png')
+        plot_error_metrics(test_mae, test_rmse, error_metrics_path_test, split_name='Test')
+        print(f"Saved test error metrics to {error_metrics_path_test}")
+        
+        # Clean up
+        del base_transformer_test, test_model
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        
+        print(f"{'='*80}\n")
+    else:
+        print("\nNo test set available; skipping test evaluation.")
+
+    print(f"\n{'='*80}")
+    print(f"✓ ALL TRAINING AND EVALUATION COMPLETE")
+    print(f"{'='*80}")
 
 
 if __name__ == '__main__':

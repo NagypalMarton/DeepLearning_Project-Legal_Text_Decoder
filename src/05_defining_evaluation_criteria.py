@@ -251,6 +251,129 @@ def main():
 	plot_confusion_matrix(y_test, y_pred, labels, cm_path)
 	print(f"Saved test confusion matrix to {cm_path}")
 
+	# Additional visualizations
+	def label_to_numeric(labels):
+		out = []
+		for l in labels:
+			m = str(l).strip()
+			if m and m[0].isdigit():
+				out.append(int(m[0]))
+			else:
+				out.append(0)
+		return np.array(out)
+
+	def plot_metrics_summary(report, save_path, split_name='Test'):
+		metrics = {
+			'Accuracy': report.get('accuracy', 0),
+			'Weighted F1': report.get('weighted avg', {}).get('f1-score', 0),
+			'MAE': report.get('mae', 0),
+			'RMSE': report.get('rmse', 0)
+		}
+		fig, ax = plt.subplots(figsize=(10, 6))
+		colors = ['#2ecc71', '#3498db', '#e74c3c', '#f39c12']
+		bars = ax.bar(metrics.keys(), metrics.values(), color=colors, alpha=0.8)
+		ax.set_ylabel('Score / Error', fontsize=12)
+		ax.set_title(f'Test Metrics Summary ({split_name})', fontsize=14, fontweight='bold')
+		ax.set_ylim([0, max(max(metrics.values()) * 1.2, 1.0)])
+		ax.grid(axis='y', alpha=0.3, linestyle='--')
+		for bar, (name, value) in zip(bars, metrics.items()):
+			h = bar.get_height()
+			ax.text(bar.get_x() + bar.get_width()/2., h, f'{value:.4f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
+		fig.tight_layout()
+		fig.savefig(save_path, dpi=150, bbox_inches='tight')
+		plt.close(fig)
+
+	def plot_classwise_bars(report, save_dir, split_name='Test'):
+		reserved = {"accuracy", "macro avg", "weighted avg"}
+		class_keys = [k for k in report.keys() if k not in reserved]
+		class_keys = [k for k in class_keys if isinstance(report[k], dict) and 'precision' in report[k]]
+		if not class_keys:
+			return
+		class_keys_sorted = class_keys
+
+		def _plot_metric(metric_name, filename, color):
+			values = [report[c].get(metric_name, 0) for c in class_keys_sorted]
+			fig, ax = plt.subplots(figsize=(max(8, len(values)*0.9), 5))
+			ax.bar(class_keys_sorted, values, color=color, alpha=0.85)
+			ax.set_title(f'{metric_name.title()} by Class ({split_name})', fontsize=14, fontweight='bold')
+			ax.set_ylabel(metric_name.title())
+			ax.set_ylim([0, 1])
+			plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+			for i, v in enumerate(values):
+				ax.text(i, v + 0.01, f"{v:.3f}", ha='center', va='bottom', fontsize=9)
+			fig.tight_layout()
+			fig.savefig(os.path.join(save_dir, filename), dpi=150, bbox_inches='tight')
+			plt.close(fig)
+
+		_plot_metric('precision', f'05-evaluation_test_class_precision.png', '#5dade2')
+		_plot_metric('recall', f'05-evaluation_test_class_recall.png', '#58d68d')
+		_plot_metric('f1-score', f'05-evaluation_test_class_f1.png', '#f4d03f')
+
+		supports = [report[c].get('support', 0) for c in class_keys_sorted]
+		fig, ax = plt.subplots(figsize=(max(8, len(supports)*0.9), 5))
+		ax.bar(class_keys_sorted, supports, color='#a569bd', alpha=0.85)
+		ax.set_title(f'Support by Class ({split_name})', fontsize=14, fontweight='bold')
+		ax.set_ylabel('Support (count)')
+		plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+		for i, v in enumerate(supports):
+			ax.text(i, v, f"{int(v)}", ha='center', va='bottom', fontsize=9)
+		fig.tight_layout()
+		fig.savefig(os.path.join(save_dir, f'05-evaluation_test_class_support.png'), dpi=150, bbox_inches='tight')
+		plt.close(fig)
+
+	def plot_average_metrics(report, save_path, split_name='Test'):
+		metrics = ['precision', 'recall', 'f1-score']
+		macro = [report.get('macro avg', {}).get(m, 0) for m in metrics]
+		weighted = [report.get('weighted avg', {}).get(m, 0) for m in metrics]
+		x = np.arange(len(metrics))
+		width = 0.35
+		fig, ax = plt.subplots(figsize=(8, 5))
+		ax.bar(x - width/2, macro, width, label='Macro', color='#7fb3d5')
+		ax.bar(x + width/2, weighted, width, label='Weighted', color='#76d7c4')
+		ax.set_xticks(x)
+		ax.set_xticklabels([m.title() for m in metrics])
+		ax.set_ylim([0, 1])
+		ax.set_ylabel('Score')
+		ax.set_title(f'Average Metrics ({split_name})', fontsize=14, fontweight='bold')
+		ax.legend()
+		for i, v in enumerate(macro):
+			ax.text(i - width/2, v + 0.01, f"{v:.3f}", ha='center', va='bottom', fontsize=9)
+		for i, v in enumerate(weighted):
+			ax.text(i + width/2, v + 0.01, f"{v:.3f}", ha='center', va='bottom', fontsize=9)
+		fig.tight_layout()
+		fig.savefig(save_path, dpi=150, bbox_inches='tight')
+		plt.close(fig)
+
+	def plot_error_metrics(mae, rmse, save_path, split_name='Test'):
+		labels_err = ['MAE', 'RMSE']
+		values = [mae, rmse]
+		fig, ax = plt.subplots(figsize=(6, 5))
+		colors = ['#e67e22', '#c0392b']
+		ax.bar(labels_err, values, color=colors, alpha=0.85)
+		ax.set_title(f'Error Metrics ({split_name})', fontsize=14, fontweight='bold')
+		ax.set_ylabel('Error')
+		for i, v in enumerate(values):
+			ax.text(i, v, f"{v:.4f}", ha='center', va='bottom', fontsize=10)
+		fig.tight_layout()
+		fig.savefig(save_path, dpi=150, bbox_inches='tight')
+		plt.close(fig)
+
+	# Generate all plots
+	metrics_plot_path = os.path.join(eval_dir, '05-evaluation_test_metrics_summary.png')
+	plot_metrics_summary(report, metrics_plot_path, split_name='Test')
+	print(f"Saved test metrics summary to {metrics_plot_path}")
+
+	plot_classwise_bars(report, eval_dir, split_name='Test')
+	print(f"Saved test classwise metric plots to {eval_dir}")
+
+	avg_metrics_path = os.path.join(eval_dir, '05-evaluation_test_avg_metrics.png')
+	plot_average_metrics(report, avg_metrics_path, split_name='Test')
+	print(f"Saved test avg metrics to {avg_metrics_path}")
+
+	error_metrics_path = os.path.join(eval_dir, '05-evaluation_test_errors.png')
+	plot_error_metrics(mae, rmse, error_metrics_path, split_name='Test')
+	print(f"Saved test error metrics to {error_metrics_path}")
+
 
 if __name__ == '__main__':
 	main()
