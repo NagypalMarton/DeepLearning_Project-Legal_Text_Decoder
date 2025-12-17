@@ -707,7 +707,7 @@ def train_single_model(model_config, base_transformer, tokenizer, train_loader, 
             
             # Early stopping based on val_weighted_f1
             current = val_weighted_f1
-            if current > best_metric_val + 1e-4:
+            if current > best_metric_val + 0.01:
                 best_metric_val = current
                 no_improve_epochs = 0
                 # Save best checkpoint
@@ -757,7 +757,7 @@ def parse_args():
     parser.add_argument("--weight_decay", type=float, default=0.01)
     parser.add_argument("--max_length", type=int, default=320)
     parser.add_argument("--label_smoothing", type=float, default=0.02)
-    parser.add_argument("--early_stopping_patience", type=int, default=3)
+    parser.add_argument("--early_stopping_patience", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=2)
     parser.add_argument("--grad_acc_steps", type=int, default=2)
     parser.add_argument("--output_dir", default="/app/output", help="Base output directory")
